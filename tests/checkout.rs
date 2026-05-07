@@ -207,6 +207,85 @@ fn checkout_existing_local_branch() {
         .success();
 }
 
+/// Checkout: existing local branch gets upstream tracking configured
+#[test]
+fn checkout_existing_local_branch_sets_upstream() {
+    let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
+    let project_dir = bare_dir.parent().unwrap();
+
+    // Create and push a branch
+    gwt(&bare_dir)
+        .args(["create", "test/upstream-fix"])
+        .assert()
+        .success();
+    let push = std::process::Command::new("git")
+        .args(["push", "--quiet", "origin", "test/upstream-fix"])
+        .current_dir(project_dir.join("test-upstream-fix"))
+        .output()
+        .unwrap();
+    assert!(
+        push.status.success(),
+        "push failed: {}",
+        String::from_utf8_lossy(&push.stderr)
+    );
+
+    // Remove worktree
+    gwt(&bare_dir)
+        .args(["remove", "test-upstream-fix", "--force"])
+        .assert()
+        .success();
+
+    // Re-create the local branch without tracking (simulating leftover local branch)
+    let create_branch = std::process::Command::new("git")
+        .args(["branch", "test/upstream-fix", "origin/test/upstream-fix"])
+        .current_dir(&bare_dir)
+        .output()
+        .unwrap();
+    assert!(
+        create_branch.status.success(),
+        "branch create failed: {}",
+        String::from_utf8_lossy(&create_branch.stderr)
+    );
+
+    // Explicitly unset any upstream tracking to simulate the bug scenario
+    let _ = std::process::Command::new("git")
+        .args(["branch", "--unset-upstream", "test/upstream-fix"])
+        .current_dir(&bare_dir)
+        .output();
+
+    // Checkout should succeed and set upstream tracking
+    gwt(&bare_dir)
+        .args(["checkout", "test/upstream-fix"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Created").and(predicate::str::contains("tracking")));
+
+    // Verify upstream is configured
+    let upstream = std::process::Command::new("git")
+        .args(["config", "--get", "branch.test/upstream-fix.remote"])
+        .current_dir(&bare_dir)
+        .output()
+        .unwrap();
+    assert!(upstream.status.success(), "upstream remote should be set");
+    let remote_val = String::from_utf8_lossy(&upstream.stdout);
+    assert_eq!(remote_val.trim(), "origin");
+
+    let merge = std::process::Command::new("git")
+        .args(["config", "--get", "branch.test/upstream-fix.merge"])
+        .current_dir(&bare_dir)
+        .output()
+        .unwrap();
+    assert!(merge.status.success(), "upstream merge ref should be set");
+    let merge_val = String::from_utf8_lossy(&merge.stdout);
+    assert_eq!(merge_val.trim(), "refs/heads/test/upstream-fix");
+
+    // cleanup
+    gwt(&bare_dir)
+        .args(["remove", "test-upstream-fix", "--force"])
+        .assert()
+        .success();
+}
+
 /// Checkout: --remote uses a non-default remote
 #[test]
 fn checkout_with_remote() {

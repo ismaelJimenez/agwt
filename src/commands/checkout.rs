@@ -49,6 +49,13 @@ pub fn cmd_checkout(bare_dir: &Path, name: &str, branch: &str, remote: &str) -> 
             target_dir.to_str().unwrap(),
             branch,
         ]))?;
+        let _ = git(bare_dir)
+            .args([
+                "branch",
+                &format!("--set-upstream-to={}", remote_ref),
+                branch,
+            ])
+            .status();
     } else {
         run(git(bare_dir).args([
             "worktree",
