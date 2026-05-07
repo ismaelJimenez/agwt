@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -82,9 +83,26 @@ pub fn get_default_branch(bare_dir: &Path) -> Result<String> {
 }
 
 pub fn list_worktrees(bare_dir: &Path, parent: &Path) -> Result<Vec<Worktree>> {
-    let output = run_output(git(bare_dir).args(["worktree", "list", "--porcelain"]))?;
-    let mut entries = Vec::new();
+    let total_start = std::time::Instant::now();
 
+    let t0 = std::time::Instant::now();
+    let output = run_output(git(bare_dir).args(["worktree", "list", "--porcelain"]))?;
+    let worktree_list_time = t0.elapsed();
+
+    // Batch-load all agwt-base config values in a single git call
+    let t0 = std::time::Instant::now();
+    let base_map = get_all_branch_bases(bare_dir);
+    let config_time = t0.elapsed();
+
+    // Parse worktree list output
+    struct RawEntry {
+        path: PathBuf,
+        name: String,
+        branch: String,
+        locked: bool,
+    }
+
+    let mut raw_entries = Vec::new();
     let mut worktree_path: Option<PathBuf> = None;
     let mut branch: Option<String> = None;
     let mut is_bare = false;
@@ -100,17 +118,11 @@ pub fn list_worktrees(bare_dir: &Path, parent: &Path) -> Result<Vec<Worktree>> {
                         .to_string_lossy()
                         .into_owned();
                     let br = branch.take().unwrap_or_else(|| "(detached)".into());
-                    let (dirty, ahead, behind) = worktree_status(&wt_path, &br);
-                    let base = get_branch_base(bare_dir, &br);
-                    entries.push(Worktree {
+                    raw_entries.push(RawEntry {
                         path: wt_path,
                         name,
                         branch: br,
-                        dirty,
-                        ahead,
-                        behind,
                         locked,
-                        base,
                     });
                 }
             }
@@ -132,56 +144,106 @@ pub fn list_worktrees(bare_dir: &Path, parent: &Path) -> Result<Vec<Worktree>> {
         }
     }
 
+    // Collect status for each worktree
+    let t0 = std::time::Instant::now();
+    let mut entries = Vec::with_capacity(raw_entries.len());
+    for raw in raw_entries {
+        let (dirty, ahead, behind) = worktree_status(&raw.path, &raw.branch);
+        let base = base_map.get(&raw.branch).cloned();
+        entries.push(Worktree {
+            path: raw.path,
+            name: raw.name,
+            branch: raw.branch,
+            dirty,
+            ahead,
+            behind,
+            locked: raw.locked,
+            base,
+        });
+    }
+    let status_time = t0.elapsed();
+
+    if std::env::var("AGWT_TIMING").is_ok() {
+        eprintln!(
+            "[timing] list_worktrees total={:?} (worktree_list={:?}, config_batch={:?}, status_per_wt={:?}, count={})",
+            total_start.elapsed(),
+            worktree_list_time,
+            config_time,
+            status_time,
+            entries.len(),
+        );
+    }
+
     Ok(entries)
 }
 
-fn worktree_status(wt_path: &Path, branch: &str) -> (bool, u32, u32) {
-    let dirty = Command::new("git")
-        .current_dir(wt_path)
-        .args(["status", "--porcelain"])
+/// Batch-fetch all branch.*.agwt-base config values in a single git call.
+fn get_all_branch_bases(bare_dir: &Path) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let output = Command::new("git")
+        .current_dir(bare_dir)
+        .args(["config", "--get-regexp", r"^branch\..*\.agwt-base$"])
         .output()
-        .ok()
-        .map(|o| !o.stdout.is_empty())
-        .unwrap_or(false);
+        .ok();
 
-    let (ahead, behind) = if branch != "(detached)" {
-        Command::new("git")
-            .current_dir(wt_path)
-            .args(["rev-list", "--left-right", "--count", "HEAD...@{u}"])
-            .output()
-            .ok()
-            .and_then(|o| {
-                if !o.status.success() {
-                    return None;
+    if let Some(o) = output {
+        if o.status.success() {
+            let text = String::from_utf8_lossy(&o.stdout);
+            for line in text.lines() {
+                // Format: "branch.BRANCH_NAME.agwt-base VALUE"
+                if let Some((key, value)) = line.split_once(' ') {
+                    if let Some(branch_name) = key
+                        .strip_prefix("branch.")
+                        .and_then(|s| s.strip_suffix(".agwt-base"))
+                    {
+                        map.insert(branch_name.to_string(), value.to_string());
+                    }
                 }
-                let s = String::from_utf8_lossy(&o.stdout);
-                let mut parts = s.trim().split('\t');
-                let a = parts.next()?.parse::<u32>().ok()?;
-                let b = parts.next()?.parse::<u32>().ok()?;
-                Some((a, b))
-            })
-            .unwrap_or((0, 0))
-    } else {
-        (0, 0)
-    };
+            }
+        }
+    }
 
-    (dirty, ahead, behind)
+    map
 }
 
-fn get_branch_base(bare_dir: &Path, branch: &str) -> Option<String> {
-    Command::new("git")
-        .current_dir(bare_dir)
-        .args(["config", "--get", &format!("branch.{branch}.agwt-base")])
+fn worktree_status(wt_path: &Path, _branch: &str) -> (bool, u32, u32) {
+    // Use a single `git status --porcelain=v2 --branch` call to get both
+    // dirty status and ahead/behind info, instead of two separate subprocess calls.
+    let output = Command::new("git")
+        .current_dir(wt_path)
+        .args(["status", "--porcelain=v2", "--branch"])
         .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                if s.is_empty() { None } else { Some(s) }
-            } else {
-                None
+        .ok();
+
+    let Some(o) = output else {
+        return (false, 0, 0);
+    };
+    if !o.status.success() {
+        return (false, 0, 0);
+    }
+
+    let stdout = String::from_utf8_lossy(&o.stdout);
+    let mut dirty = false;
+    let mut ahead: u32 = 0;
+    let mut behind: u32 = 0;
+
+    for line in stdout.lines() {
+        if let Some(ab) = line.strip_prefix("# branch.ab ") {
+            // Format: "+<ahead> -<behind>"
+            for part in ab.split_whitespace() {
+                if let Some(a) = part.strip_prefix('+') {
+                    ahead = a.parse().unwrap_or(0);
+                } else if let Some(b) = part.strip_prefix('-') {
+                    behind = b.parse().unwrap_or(0);
+                }
             }
-        })
+        } else if !line.starts_with('#') {
+            // Any non-header line means there are changes
+            dirty = true;
+        }
+    }
+
+    (dirty, ahead, behind)
 }
 
 pub fn set_branch_base(bare_dir: &Path, branch: &str, base: &str) {
