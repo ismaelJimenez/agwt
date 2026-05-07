@@ -359,12 +359,12 @@ fn full_workflow() {
     let bare_dir = project_dir.join(".bare");
     assert!(bare_dir.exists());
 
-    // --- list (empty) ---
+    // --- list (default branch present) ---
     gwt(&bare_dir)
         .arg("list")
         .assert()
         .success()
-        .stdout(predicate::str::contains("No worktrees"));
+        .stdout(predicate::str::contains("main"));
 
     // --- create ---
     gwt(&bare_dir)
@@ -408,10 +408,12 @@ fn full_workflow() {
         .success()
         .stderr(predicate::str::contains("Removed"));
 
-    // --- list (empty again) ---
-    gwt(&bare_dir)
-        .arg("list")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("No worktrees"));
+    // --- list (only default branch remains) ---
+    let output = gwt(&bare_dir).arg("list").assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    assert!(stdout.contains("main"), "main should still be listed");
+    assert!(
+        !stdout.contains("test-integration"),
+        "removed branch should be gone"
+    );
 }

@@ -427,12 +427,12 @@ fn sync_all() {
         );
     }
 
-    // Sync all
+    // Sync all (main + two feature branches = 3)
     gwt(&bare_dir)
         .args(["sync", "--all"])
         .assert()
         .success()
-        .stderr(predicate::str::contains("Synced").count(2));
+        .stderr(predicate::str::contains("Synced").count(3));
 
     // cleanup
     for name in &["test-sync-all-a", "test-sync-all-b"] {
@@ -487,7 +487,7 @@ fn sync_all_partial_failure() {
     }
 }
 
-/// Sync --all: no worktrees prints message and succeeds
+/// Sync --all: with only default branch worktree, syncs it
 #[test]
 fn sync_all_empty() {
     let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
@@ -496,7 +496,7 @@ fn sync_all_empty() {
         .args(["sync", "--all"])
         .assert()
         .success()
-        .stderr(predicate::str::contains("No worktrees"));
+        .stderr(predicate::str::contains("Synced"));
 }
 
 /// Sync: autostash preserves uncommitted changes during rebase

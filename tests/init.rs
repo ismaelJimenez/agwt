@@ -171,3 +171,54 @@ fn init_configures_git_settings() {
         "expected push.autoSetupRemote=true, got: {auto_setup}"
     );
 }
+
+/// Init: creates a worktree for the default branch
+#[test]
+fn init_creates_default_branch_worktree() {
+    let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
+    let project_dir = bare_dir.parent().unwrap();
+
+    let main_wt = project_dir.join("main");
+    assert!(main_wt.exists(), "main worktree directory should exist");
+    assert!(
+        main_wt.join("README.md").exists(),
+        "main worktree should contain checked-out files"
+    );
+}
+
+/// Init: default branch worktree tracks origin
+#[test]
+fn init_default_branch_tracks_upstream() {
+    let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
+    let project_dir = bare_dir.parent().unwrap();
+
+    let main_wt = project_dir.join("main");
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
+        .current_dir(&main_wt)
+        .output()
+        .unwrap();
+    let upstream = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        upstream.trim() == "origin/main",
+        "expected upstream origin/main, got: {upstream}"
+    );
+}
+
+/// Init: output mentions the created worktree
+#[test]
+fn init_output_mentions_worktree() {
+    let (_remote_tmp, remote_path) = setup_local_remote();
+    let tmp = TempDir::new().unwrap();
+    Command::cargo_bin("agwt")
+        .unwrap()
+        .args(["init", remote_path.to_str().unwrap(), "--name", "myproject"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stderr(
+            predicate::str::contains("Cloning")
+                .and(predicate::str::contains("Created"))
+                .and(predicate::str::contains("main")),
+        );
+}

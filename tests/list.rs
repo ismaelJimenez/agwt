@@ -4,15 +4,15 @@ use common::{gwt, init_fresh};
 use predicates::prelude::*;
 use tempfile::TempDir;
 
-/// List: empty repo shows "No worktrees"
+/// List: freshly-inited repo shows the default branch worktree
 #[test]
-fn list_empty() {
+fn list_after_init() {
     let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
     gwt(&bare_dir)
         .arg("list")
         .assert()
         .success()
-        .stdout(predicate::str::contains("No worktrees"));
+        .stdout(predicate::str::contains("main"));
 }
 
 /// List: shows created worktree with correct name
@@ -38,9 +38,9 @@ fn list_shows_worktree() {
         .success();
 }
 
-/// List: worktree gone after remove
+/// List: only default branch remains after removing a feature worktree
 #[test]
-fn list_empty_after_remove() {
+fn list_after_remove() {
     let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
 
     gwt(&bare_dir)
@@ -52,11 +52,13 @@ fn list_empty_after_remove() {
         .assert()
         .success();
 
-    gwt(&bare_dir)
-        .arg("list")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("No worktrees"));
+    let output = gwt(&bare_dir).arg("list").assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    assert!(stdout.contains("main"), "should still list main");
+    assert!(
+        !stdout.contains("test-list-rm"),
+        "removed worktree should be gone"
+    );
 }
 
 /// List: shows dirty indicator when worktree has uncommitted changes

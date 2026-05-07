@@ -309,7 +309,7 @@ fn init_fails_invalid_url() {
 // list
 // =============================================================================
 
-/// List: empty repo shows "No worktrees"
+/// List: freshly-inited repo shows the default branch worktree
 #[test]
 fn list_empty() {
     let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
@@ -317,7 +317,7 @@ fn list_empty() {
         .arg("list")
         .assert()
         .success()
-        .stdout(predicate::str::contains("No worktrees"));
+        .stdout(predicate::str::contains("main"));
 }
 
 /// List: shows created worktree with correct name
@@ -343,7 +343,7 @@ fn list_shows_worktree() {
         .success();
 }
 
-/// List: worktree gone after remove
+/// List: only default branch remains after removing a feature worktree
 #[test]
 fn list_empty_after_remove() {
     let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
@@ -357,11 +357,13 @@ fn list_empty_after_remove() {
         .assert()
         .success();
 
-    gwt(&bare_dir)
-        .arg("list")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("No worktrees"));
+    let output = gwt(&bare_dir).arg("list").assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    assert!(stdout.contains("main"), "main should still be listed");
+    assert!(
+        !stdout.contains("test-list-rm"),
+        "removed worktree should be gone"
+    );
 }
 
 /// List: shows dirty indicator when worktree has uncommitted changes
@@ -1639,12 +1641,12 @@ fn full_workflow() {
     let bare_dir = project_dir.join(".bare");
     assert!(bare_dir.exists());
 
-    // --- list (empty) ---
+    // --- list (default branch present) ---
     gwt(&bare_dir)
         .arg("list")
         .assert()
         .success()
-        .stdout(predicate::str::contains("No worktrees"));
+        .stdout(predicate::str::contains("main"));
 
     // --- create ---
     gwt(&bare_dir)
@@ -1688,12 +1690,14 @@ fn full_workflow() {
         .success()
         .stderr(predicate::str::contains("Removed"));
 
-    // --- list (empty again) ---
-    gwt(&bare_dir)
-        .arg("list")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("No worktrees"));
+    // --- list (only default branch remains) ---
+    let output = gwt(&bare_dir).arg("list").assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    assert!(stdout.contains("main"), "main should still be listed");
+    assert!(
+        !stdout.contains("test-integration"),
+        "removed branch should be gone"
+    );
 }
 
 // =============================================================================
