@@ -20,6 +20,7 @@ anstream = "1"
 anstyle = "1"
 dunce = "1"
 git2 = "0.20"
+indicatif = "0.18"
 
 [dev-dependencies]
 assert_cmd = "2"

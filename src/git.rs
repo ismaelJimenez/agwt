@@ -1,8 +1,8 @@
 use std::cell::Cell;
 use std::collections::HashMap;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 use std::thread;
 
 use anyhow::{Context, Result, bail};
@@ -10,6 +10,7 @@ use git2::{
     Cred, CredentialType, FetchOptions, FetchPrune, RemoteCallbacks, Repository, StatusOptions,
     WorktreeAddOptions,
 };
+use indicatif::{ProgressBar, ProgressStyle};
 
 pub struct Worktree {
     pub path: PathBuf,
@@ -580,33 +581,43 @@ fn make_credentials_callback<'a>() -> RemoteCallbacks<'a> {
     cb
 }
 
-/// Format a transfer progress line for display on stderr.
-fn format_transfer_progress(received: usize, total: usize, indexed: usize, bytes: usize) -> String {
-    let kib = bytes / 1024;
-    format!(
-        "\r{:>6}/{:<6} objects, {:>5} indexed, {:>6} KiB",
-        received, total, indexed, kib
-    )
+/// Create a progress bar for transfer operations.
+fn make_transfer_progress_bar() -> Arc<ProgressBar> {
+    let pb =
+        ProgressBar::with_draw_target(Some(0), indicatif::ProgressDrawTarget::stderr_with_hz(20));
+    pb.set_style(
+        ProgressStyle::with_template(
+            "       {bar:20.green/dim} {percent:>3}%  {pos}/{len} objects, {msg}",
+        )
+        .unwrap()
+        .progress_chars("█░░"),
+    );
+    Arc::new(pb)
 }
 
-/// Clear the progress line on stderr.
-fn clear_progress_line() {
-    eprint!("\r\x1b[2K");
-    let _ = std::io::stderr().flush();
+/// Finish the progress bar with a trailing blank line for spacing.
+fn finish_progress(pb: &ProgressBar) {
+    if pb.length() == Some(0) {
+        pb.finish_and_clear();
+    } else {
+        pb.finish();
+        eprintln!();
+    }
 }
 
 /// Create FetchOptions with credential callbacks, transfer progress, and optional prune.
-fn make_fetch_options(prune: bool) -> FetchOptions<'static> {
+fn make_fetch_options(prune: bool) -> (FetchOptions<'static>, Arc<ProgressBar>) {
     let mut cb = make_credentials_callback();
-    cb.transfer_progress(|stats| {
-        let msg = format_transfer_progress(
-            stats.received_objects(),
-            stats.total_objects(),
-            stats.indexed_objects(),
-            stats.received_bytes(),
-        );
-        eprint!("{msg}");
-        let _ = std::io::stderr().flush();
+    let pb = make_transfer_progress_bar();
+    let pb_clone = Arc::clone(&pb);
+    cb.transfer_progress(move |stats| {
+        let total = stats.total_objects() as u64;
+        if pb_clone.length() != Some(total) {
+            pb_clone.set_length(total);
+        }
+        pb_clone.set_position(stats.received_objects() as u64);
+        let kib = stats.received_bytes() / 1024;
+        pb_clone.set_message(format!("{kib} KiB"));
         true
     });
     let mut fo = FetchOptions::new();
@@ -614,7 +625,7 @@ fn make_fetch_options(prune: bool) -> FetchOptions<'static> {
     if prune {
         fo.prune(FetchPrune::On);
     }
-    fo
+    (fo, pb)
 }
 
 /// Fetch a specific remote (with prune) using libgit2.
@@ -624,11 +635,11 @@ pub fn fetch_remote(bare_dir: &Path, remote_name: &str, refspecs: &[&str]) -> Re
     let mut remote = repo
         .find_remote(remote_name)
         .with_context(|| format!("remote '{}' not found", remote_name))?;
-    let mut fo = make_fetch_options(true);
+    let (mut fo, pb) = make_fetch_options(true);
     remote
         .fetch(refspecs, Some(&mut fo), None)
         .with_context(|| format!("failed to fetch from '{}'", remote_name))?;
-    clear_progress_line();
+    finish_progress(&pb);
     Ok(())
 }
 
@@ -639,11 +650,11 @@ pub fn fetch_all_remotes(bare_dir: &Path) -> Result<()> {
     let remotes = repo.remotes().context("failed to list remotes")?;
     for remote_name in remotes.iter().flatten() {
         let mut remote = repo.find_remote(remote_name)?;
-        let mut fo = make_fetch_options(true);
+        let (mut fo, pb) = make_fetch_options(true);
         remote
             .fetch(&[] as &[&str], Some(&mut fo), None)
             .with_context(|| format!("failed to fetch from '{remote_name}'"))?;
-        clear_progress_line();
+        finish_progress(&pb);
     }
     Ok(())
 }
@@ -699,14 +710,14 @@ pub fn worktree_add_new_branch(
 
 /// Bare clone a repository using libgit2.
 pub fn clone_bare(url: &str, dest: &Path) -> Result<()> {
-    let fo = make_fetch_options(false);
+    let (fo, pb) = make_fetch_options(false);
     let mut builder = git2::build::RepoBuilder::new();
     builder.bare(true);
     builder.fetch_options(fo);
     builder
         .clone(url, dest)
         .with_context(|| format!("failed to clone '{}' into {}", url, dest.display()))?;
-    clear_progress_line();
+    finish_progress(&pb);
     Ok(())
 }
 
@@ -795,23 +806,14 @@ mod tests {
     }
 
     #[test]
-    fn transfer_progress_format() {
-        let output = format_transfer_progress(63, 126, 50, 32768);
-        assert_eq!(output, "\r    63/126    objects,    50 indexed,     32 KiB");
-    }
-
-    #[test]
-    fn transfer_progress_format_zero() {
-        let output = format_transfer_progress(0, 0, 0, 0);
-        assert_eq!(output, "\r     0/0      objects,     0 indexed,      0 KiB");
-    }
-
-    #[test]
-    fn transfer_progress_format_large_values() {
-        let output = format_transfer_progress(999999, 999999, 999999, 1048576);
-        assert_eq!(
-            output,
-            "\r999999/999999 objects, 999999 indexed,   1024 KiB"
-        );
+    fn transfer_progress_bar_tracks_position() {
+        let pb = make_transfer_progress_bar();
+        pb.set_length(100);
+        pb.set_position(50);
+        pb.set_message("48 KiB".to_string());
+        assert_eq!(pb.position(), 50);
+        assert_eq!(pb.length(), Some(100));
+        pb.finish();
+        assert!(pb.is_finished());
     }
 }

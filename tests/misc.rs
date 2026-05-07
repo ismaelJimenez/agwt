@@ -24,12 +24,11 @@ fn fetch_works() {
 // transfer progress
 // =============================================================================
 
-/// Init: displays transfer progress on stderr during clone (file:// forces pack protocol)
+/// Init: clone works with file:// URL (pack protocol, triggers transfer progress on TTY)
 #[test]
-fn init_shows_transfer_progress() {
+fn init_clone_with_file_url() {
     let (_remote_tmp, remote_path) = setup_local_remote();
     let tmp = TempDir::new().unwrap();
-    // Use file:// URL to force pack protocol which triggers transfer_progress callback
     let url = format!("file://{}", remote_path.display());
     Command::cargo_bin("agwt")
         .unwrap()
@@ -37,7 +36,10 @@ fn init_shows_transfer_progress() {
         .current_dir(tmp.path())
         .assert()
         .success()
-        .stderr(predicate::str::contains("objects"));
+        .stderr(predicate::str::contains("Cloning"));
+
+    let bare_dir = tmp.path().join("progress-test").join(".bare");
+    assert!(bare_dir.exists());
 }
 
 // =============================================================================
