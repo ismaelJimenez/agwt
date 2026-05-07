@@ -1,0 +1,25 @@
+[package]
+name = "agwt"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A CLI tool to manage git worktrees backed by a bare repository"
+license = "MIT"
+repository = "https://github.com/ismaelJimenez/agwt"
+readme = "README.md"
+keywords = ["git", "worktree", "bare-repository", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+publish = ["crates-io"]
+
+[dependencies]
+clap = { version = "4.6.1", features = ["derive"] }
+clap_complete = { version = "4.6.3", features = ["unstable-dynamic"] }
+anyhow = "1"
+anstream = "1"
+anstyle = "1"
+dunce = "1"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
