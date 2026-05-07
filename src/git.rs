@@ -472,10 +472,56 @@ pub fn set_branch_upstream(bare_dir: &Path, branch: &str, upstream: &str) -> Res
 
 // --- Network operations using libgit2 ---
 
-/// Create a RemoteCallbacks with credential handling that supports:
-/// - SSH agent (most common on dev machines)
-/// - Git credential helpers (handles HTTPS tokens, macOS keychain, etc.)
-/// - SSH key from default locations (~/.ssh/id_rsa, id_ed25519)
+/// Credential strategies the auth callback can try on each invocation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CredentialStrategy {
+    /// Try SSH agent (first attempt only)
+    SshAgent,
+    /// Try file-based SSH keys
+    SshKeyFiles,
+    /// Try credential helper for userpass
+    CredentialHelper,
+    /// Try default credentials (Negotiate/NTLM)
+    Default,
+    /// No suitable credential found
+    None,
+    /// Too many attempts, give up
+    TooManyAttempts,
+}
+
+/// Determine the ordered list of credential strategies for a given attempt number.
+fn credential_strategies(attempt: u32, allowed_types: CredentialType) -> Vec<CredentialStrategy> {
+    if attempt > 4 {
+        return vec![CredentialStrategy::TooManyAttempts];
+    }
+
+    let mut strategies = Vec::new();
+
+    if allowed_types.contains(CredentialType::SSH_KEY) {
+        // Only try agent on the first attempt. If the callback fires again,
+        // it means the previously returned credential was rejected (e.g. dead
+        // SSH_AUTH_SOCK or agent keys not authorized on the server).
+        if attempt == 1 {
+            strategies.push(CredentialStrategy::SshAgent);
+        }
+        strategies.push(CredentialStrategy::SshKeyFiles);
+    }
+
+    if allowed_types.contains(CredentialType::USER_PASS_PLAINTEXT) {
+        strategies.push(CredentialStrategy::CredentialHelper);
+    }
+
+    if allowed_types.contains(CredentialType::DEFAULT) {
+        strategies.push(CredentialStrategy::Default);
+    }
+
+    if strategies.is_empty() {
+        strategies.push(CredentialStrategy::None);
+    }
+
+    strategies
+}
+
 fn make_credentials_callback<'a>() -> RemoteCallbacks<'a> {
     let mut cb = RemoteCallbacks::new();
     // Track attempts to prevent infinite loops when the server rejects credentials.
@@ -485,41 +531,48 @@ fn make_credentials_callback<'a>() -> RemoteCallbacks<'a> {
         move |url: &str, username_from_url: Option<&str>, allowed_types: CredentialType| {
             let n = attempts.get() + 1;
             attempts.set(n);
-            if n > 4 {
-                return Err(git2::Error::from_str(
-                    "authentication failed after multiple attempts",
-                ));
-            }
 
-            // Try SSH agent first
-            if allowed_types.contains(CredentialType::SSH_KEY) {
-                let user = username_from_url.unwrap_or("git");
-                if let Ok(cred) = Cred::ssh_key_from_agent(user) {
-                    return Ok(cred);
-                }
-                // Fallback: try default SSH key locations
-                let home = std::env::var("HOME").unwrap_or_default();
-                for key_name in &["id_ed25519", "id_rsa"] {
-                    let key_path = PathBuf::from(&home).join(".ssh").join(key_name);
-                    if key_path.exists() {
-                        if let Ok(cred) = Cred::ssh_key(user, None, &key_path, None) {
+            let strategies = credential_strategies(n, allowed_types);
+            let user = username_from_url.unwrap_or("git");
+
+            for strategy in strategies {
+                match strategy {
+                    CredentialStrategy::TooManyAttempts => {
+                        return Err(git2::Error::from_str(
+                            "authentication failed after multiple attempts",
+                        ));
+                    }
+                    CredentialStrategy::SshAgent => {
+                        if let Ok(cred) = Cred::ssh_key_from_agent(user) {
                             return Ok(cred);
                         }
                     }
-                }
-            }
-            // Try userpass from git credential helper
-            if allowed_types.contains(CredentialType::USER_PASS_PLAINTEXT) {
-                if let Ok(cfg) = git2::Config::open_default() {
-                    if let Ok(cred) = Cred::credential_helper(&cfg, url, username_from_url) {
-                        return Ok(cred);
+                    CredentialStrategy::SshKeyFiles => {
+                        let home = std::env::var("HOME").unwrap_or_default();
+                        for key_name in &["id_ed25519", "id_rsa"] {
+                            let key_path = PathBuf::from(&home).join(".ssh").join(key_name);
+                            if key_path.exists() {
+                                if let Ok(cred) = Cred::ssh_key(user, None, &key_path, None) {
+                                    return Ok(cred);
+                                }
+                            }
+                        }
                     }
+                    CredentialStrategy::CredentialHelper => {
+                        if let Ok(cfg) = git2::Config::open_default() {
+                            if let Ok(cred) = Cred::credential_helper(&cfg, url, username_from_url)
+                            {
+                                return Ok(cred);
+                            }
+                        }
+                    }
+                    CredentialStrategy::Default => {
+                        return Cred::default();
+                    }
+                    CredentialStrategy::None => {}
                 }
             }
-            // Default credential (for Negotiate/NTLM)
-            if allowed_types.contains(CredentialType::DEFAULT) {
-                return Cred::default();
-            }
+
             Err(git2::Error::from_str("no suitable credential found"))
         },
     );
@@ -644,4 +697,72 @@ pub fn push_delete_branch(bare_dir: &Path, remote_name: &str, branch: &str) -> R
         .push(&[&refspec], Some(&mut push_opts))
         .with_context(|| format!("failed to delete remote branch '{branch}'"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn credential_strategies_first_attempt_includes_agent() {
+        let strategies = credential_strategies(1, CredentialType::SSH_KEY);
+        assert_eq!(strategies[0], CredentialStrategy::SshAgent);
+        assert_eq!(strategies[1], CredentialStrategy::SshKeyFiles);
+    }
+
+    #[test]
+    fn credential_strategies_retry_skips_agent() {
+        // On attempt 2+, agent should NOT be in the list — only key files
+        for attempt in 2..=4 {
+            let strategies = credential_strategies(attempt, CredentialType::SSH_KEY);
+            assert!(
+                !strategies.contains(&CredentialStrategy::SshAgent),
+                "attempt {attempt} should not include SshAgent"
+            );
+            assert_eq!(strategies[0], CredentialStrategy::SshKeyFiles);
+        }
+    }
+
+    #[test]
+    fn credential_strategies_too_many_attempts() {
+        let strategies = credential_strategies(5, CredentialType::SSH_KEY);
+        assert_eq!(strategies, vec![CredentialStrategy::TooManyAttempts]);
+    }
+
+    #[test]
+    fn credential_strategies_userpass() {
+        let strategies = credential_strategies(1, CredentialType::USER_PASS_PLAINTEXT);
+        assert_eq!(strategies, vec![CredentialStrategy::CredentialHelper]);
+    }
+
+    #[test]
+    fn credential_strategies_combined_types() {
+        let allowed = CredentialType::SSH_KEY | CredentialType::USER_PASS_PLAINTEXT;
+        let strategies = credential_strategies(1, allowed);
+        assert_eq!(
+            strategies,
+            vec![
+                CredentialStrategy::SshAgent,
+                CredentialStrategy::SshKeyFiles,
+                CredentialStrategy::CredentialHelper,
+            ]
+        );
+
+        // On retry, agent is skipped
+        let strategies = credential_strategies(2, allowed);
+        assert_eq!(
+            strategies,
+            vec![
+                CredentialStrategy::SshKeyFiles,
+                CredentialStrategy::CredentialHelper,
+            ]
+        );
+    }
+
+    #[test]
+    fn credential_strategies_no_matching_type_returns_none() {
+        // Empty credential type (nothing allowed)
+        let strategies = credential_strategies(1, CredentialType::empty());
+        assert_eq!(strategies, vec![CredentialStrategy::None]);
+    }
 }
