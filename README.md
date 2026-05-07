@@ -78,6 +78,13 @@ Resulting structure:
 Each worktree is an independent working directory — you can open them
 in separate editor windows or feed them to AI coding agents in parallel.
 
+`agwt list` shows the base branch when known:
+
+```
+  develop          develop
+  feature-my-task  feature/my-task (from develop) [↑1]
+```
+
 ## Quick Start
 
 ```bash
@@ -93,7 +100,10 @@ agwt create fix/bug-123 --base develop
 # Checkout a worktree tracking an existing remote branch
 agwt checkout develop
 
-# List all worktrees (shows dirty state, ahead/behind, lock status)
+# Checkout and record which branch it was based on
+agwt checkout feature/xyz --base develop
+
+# List all worktrees (shows dirty state, ahead/behind, lock status, base branch)
 agwt list
 
 # Sync (pull --rebase) a worktree by name

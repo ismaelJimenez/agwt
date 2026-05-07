@@ -3,7 +3,7 @@ use std::path::Path;
 use anstream::eprintln;
 use anyhow::{Context, Result, bail};
 
-use crate::git::{get_default_branch, git, parent_of_bare, run};
+use crate::git::{get_default_branch, git, parent_of_bare, run, set_branch_base};
 use crate::{BOLD, GREEN};
 
 pub fn cmd_create(
@@ -44,6 +44,8 @@ pub fn cmd_create(
         target_dir.to_str().unwrap(),
         &remote_ref,
     ]))?;
+
+    set_branch_base(bare_dir, branch, &base_ref);
 
     eprintln!(
         "{GREEN}{:>12}{GREEN:#} worktree {BOLD}{name}{BOLD:#} at {} (new branch {BOLD}{branch}{BOLD:#} from {BOLD}{base_ref}{BOLD:#})",

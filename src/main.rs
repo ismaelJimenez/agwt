@@ -74,6 +74,10 @@ enum Commands {
         #[arg(long)]
         name: Option<String>,
 
+        /// Base branch this was created from (stored for `agwt list` display)
+        #[arg(long)]
+        base: Option<String>,
+
         /// Remote name (default: origin)
         #[arg(long, default_value = "origin")]
         remote: String,
@@ -220,10 +224,11 @@ fn main() {
                 Commands::Checkout {
                     branch,
                     name,
+                    base,
                     remote,
                 } => {
                     let dir_name = name.unwrap_or_else(|| branch.replace('/', "-"));
-                    cmd_checkout(&bare_dir, &dir_name, &branch, &remote)
+                    cmd_checkout(&bare_dir, &dir_name, &branch, base.as_deref(), &remote)
                 }
                 Commands::Remove {
                     name,

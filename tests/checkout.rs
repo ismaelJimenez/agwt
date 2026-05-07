@@ -326,3 +326,117 @@ fn checkout_with_remote() {
         .assert()
         .success();
 }
+
+/// Checkout: --base stores the base branch in git config
+#[test]
+fn checkout_with_base_stores_config() {
+    let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
+    let project_dir = bare_dir.parent().unwrap();
+
+    // Create and push a branch
+    gwt(&bare_dir)
+        .args(["create", "test/co-base", "--base", "main"])
+        .assert()
+        .success();
+    let push = std::process::Command::new("git")
+        .args(["push", "--quiet", "origin", "test/co-base"])
+        .current_dir(project_dir.join("test-co-base"))
+        .output()
+        .unwrap();
+    assert!(
+        push.status.success(),
+        "push failed: {}",
+        String::from_utf8_lossy(&push.stderr)
+    );
+
+    // Remove locally
+    gwt(&bare_dir)
+        .args(["remove", "test-co-base", "--force"])
+        .assert()
+        .success();
+
+    // Checkout with --base
+    gwt(&bare_dir)
+        .args(["checkout", "test/co-base", "--base", "main"])
+        .assert()
+        .success();
+
+    // Verify agwt-base is stored in git config
+    let output = std::process::Command::new("git")
+        .args(["config", "--get", "branch.test/co-base.agwt-base"])
+        .current_dir(&bare_dir)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "agwt-base config should be set");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "main");
+
+    // Verify list shows (from main)
+    gwt(&bare_dir)
+        .arg("list")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("(from main)"));
+
+    gwt(&bare_dir)
+        .args(["remove", "test-co-base", "--force"])
+        .assert()
+        .success();
+}
+
+/// Checkout: without --base, no base is stored
+#[test]
+fn checkout_without_base_has_no_config() {
+    let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
+    let project_dir = bare_dir.parent().unwrap();
+
+    // Create and push a branch
+    gwt(&bare_dir)
+        .args(["create", "test/co-nobase"])
+        .assert()
+        .success();
+    let push = std::process::Command::new("git")
+        .args(["push", "--quiet", "origin", "test/co-nobase"])
+        .current_dir(project_dir.join("test-co-nobase"))
+        .output()
+        .unwrap();
+    assert!(
+        push.status.success(),
+        "push failed: {}",
+        String::from_utf8_lossy(&push.stderr)
+    );
+
+    // Remove locally
+    gwt(&bare_dir)
+        .args(["remove", "test-co-nobase", "--force"])
+        .assert()
+        .success();
+
+    // Checkout without --base
+    gwt(&bare_dir)
+        .args(["checkout", "test/co-nobase"])
+        .assert()
+        .success();
+
+    // Verify agwt-base is NOT stored
+    let output = std::process::Command::new("git")
+        .args(["config", "--get", "branch.test/co-nobase.agwt-base"])
+        .current_dir(&bare_dir)
+        .output()
+        .unwrap();
+    assert!(
+        !output.status.success(),
+        "agwt-base config should not be set when --base is omitted"
+    );
+
+    // list should NOT show (from ...)
+    gwt(&bare_dir)
+        .arg("list")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("(from").not());
+
+    gwt(&bare_dir)
+        .args(["remove", "test-co-nobase", "--force"])
+        .assert()
+        .success();
+}

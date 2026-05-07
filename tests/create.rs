@@ -123,3 +123,60 @@ fn create_with_remote() {
         .assert()
         .success();
 }
+
+/// Create: stores base branch in git config
+#[test]
+fn create_stores_base_in_config() {
+    let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
+
+    gwt(&bare_dir)
+        .args(["create", "test/base-stored", "--base", "main"])
+        .assert()
+        .success();
+
+    // Verify agwt-base is stored in git config
+    let output = std::process::Command::new("git")
+        .args(["config", "--get", "branch.test/base-stored.agwt-base"])
+        .current_dir(&bare_dir)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "agwt-base config should be set");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "main");
+
+    // Verify list shows (from main)
+    gwt(&bare_dir)
+        .arg("list")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("(from main)"));
+
+    gwt(&bare_dir)
+        .args(["remove", "test-base-stored", "--force"])
+        .assert()
+        .success();
+}
+
+/// Create: stores default branch as base when --base is omitted
+#[test]
+fn create_stores_default_base_in_config() {
+    let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
+
+    gwt(&bare_dir)
+        .args(["create", "test/implicit-base"])
+        .assert()
+        .success();
+
+    // Verify agwt-base is stored with the default branch name
+    let output = std::process::Command::new("git")
+        .args(["config", "--get", "branch.test/implicit-base.agwt-base"])
+        .current_dir(&bare_dir)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "agwt-base config should be set");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "main");
+
+    gwt(&bare_dir)
+        .args(["remove", "test-implicit-base", "--force"])
+        .assert()
+        .success();
+}

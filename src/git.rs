@@ -11,6 +11,7 @@ pub struct Worktree {
     pub ahead: u32,
     pub behind: u32,
     pub locked: bool,
+    pub base: Option<String>,
 }
 
 pub fn resolve_bare_dir(explicit: Option<&Path>) -> Result<PathBuf> {
@@ -100,6 +101,7 @@ pub fn list_worktrees(bare_dir: &Path, parent: &Path) -> Result<Vec<Worktree>> {
                         .into_owned();
                     let br = branch.take().unwrap_or_else(|| "(detached)".into());
                     let (dirty, ahead, behind) = worktree_status(&wt_path, &br);
+                    let base = get_branch_base(bare_dir, &br);
                     entries.push(Worktree {
                         path: wt_path,
                         name,
@@ -108,6 +110,7 @@ pub fn list_worktrees(bare_dir: &Path, parent: &Path) -> Result<Vec<Worktree>> {
                         ahead,
                         behind,
                         locked,
+                        base,
                     });
                 }
             }
@@ -163,4 +166,27 @@ fn worktree_status(wt_path: &Path, branch: &str) -> (bool, u32, u32) {
     };
 
     (dirty, ahead, behind)
+}
+
+fn get_branch_base(bare_dir: &Path, branch: &str) -> Option<String> {
+    Command::new("git")
+        .current_dir(bare_dir)
+        .args(["config", "--get", &format!("branch.{branch}.agwt-base")])
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if s.is_empty() { None } else { Some(s) }
+            } else {
+                None
+            }
+        })
+}
+
+pub fn set_branch_base(bare_dir: &Path, branch: &str, base: &str) {
+    let _ = Command::new("git")
+        .current_dir(bare_dir)
+        .args(["config", &format!("branch.{branch}.agwt-base"), base])
+        .status();
 }

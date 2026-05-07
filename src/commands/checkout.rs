@@ -3,10 +3,16 @@ use std::path::Path;
 use anstream::eprintln;
 use anyhow::{Context, Result, bail};
 
-use crate::git::{git, parent_of_bare, run};
+use crate::git::{git, parent_of_bare, run, set_branch_base};
 use crate::{BOLD, GREEN};
 
-pub fn cmd_checkout(bare_dir: &Path, name: &str, branch: &str, remote: &str) -> Result<()> {
+pub fn cmd_checkout(
+    bare_dir: &Path,
+    name: &str,
+    branch: &str,
+    base: Option<&str>,
+    remote: &str,
+) -> Result<()> {
     let target_dir = parent_of_bare(bare_dir).join(name);
 
     if target_dir.exists() {
@@ -67,6 +73,10 @@ pub fn cmd_checkout(bare_dir: &Path, name: &str, branch: &str, remote: &str) -> 
             target_dir.to_str().unwrap(),
             &remote_ref,
         ]))?;
+    }
+
+    if let Some(base) = base {
+        set_branch_base(bare_dir, branch, base);
     }
 
     eprintln!(
