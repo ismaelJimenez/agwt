@@ -308,12 +308,27 @@ fn shell_init_fish() {
         );
 }
 
+/// Shell-init: powershell output contains function and completion
+#[test]
+fn shell_init_powershell() {
+    Command::cargo_bin("agwt")
+        .unwrap()
+        .args(["shell-init", "powershell"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("function agwt")
+                .and(predicate::str::contains("Set-Location"))
+                .and(predicate::str::contains("Register-ArgumentCompleter")),
+        );
+}
+
 /// Shell-init: invalid shell rejected
 #[test]
 fn shell_init_invalid_shell() {
     Command::cargo_bin("agwt")
         .unwrap()
-        .args(["shell-init", "powershell"])
+        .args(["shell-init", "nushell"])
         .assert()
         .failure();
 }

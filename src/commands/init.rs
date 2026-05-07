@@ -38,6 +38,7 @@ pub fn cmd_init(url: &str, name: Option<&str>, verbose: bool) -> Result<()> {
     }
 
     // Fetch to populate remote tracking refs
+    eprintln!("{GREEN}{:>12}{GREEN:#} remote tracking refs...", "Fetching");
     git::fetch_remote(&bare_dir, "origin", &[], verbose)?;
 
     // Create a worktree for the default branch

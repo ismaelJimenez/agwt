@@ -183,7 +183,7 @@ enum Commands {
     #[command(name = "shell-init")]
     ShellInit {
         /// Shell type
-        #[arg(value_parser = ["bash", "zsh", "fish"])]
+        #[arg(value_parser = ["bash", "zsh", "fish", "powershell"])]
         shell: String,
     },
 

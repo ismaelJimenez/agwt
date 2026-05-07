@@ -222,3 +222,17 @@ fn init_output_mentions_worktree() {
                 .and(predicate::str::contains("main")),
         );
 }
+
+/// Init: prints a status message before fetching remote tracking refs
+#[test]
+fn init_prints_fetching_status() {
+    let (_remote_tmp, remote_path) = setup_local_remote();
+    let tmp = TempDir::new().unwrap();
+    Command::cargo_bin("agwt")
+        .unwrap()
+        .args(["init", remote_path.to_str().unwrap(), "--name", "myproject"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Fetching"));
+}

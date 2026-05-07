@@ -166,6 +166,11 @@ eval "$(agwt shell-init zsh)"
 agwt shell-init fish | source
 ```
 
+```powershell
+# PowerShell (add to your $PROFILE)
+agwt shell-init powershell | Invoke-Expression
+```
+
 ## Bare Repo Discovery
 
 The tool discovers the bare repository by searching for a `.bare` directory

@@ -35,6 +35,24 @@ source <(COMPLETE=zsh agwt)"#
 end
 COMPLETE=fish agwt | source"#
         }
+        "powershell" => {
+            r#"function agwt {
+    if ($args[0] -eq 'cd') {
+        $dir = & agwt.exe @args
+        if ($LASTEXITCODE -eq 0) { Set-Location $dir }
+    } else {
+        & agwt.exe @args
+    }
+}
+Register-ArgumentCompleter -Native -CommandName agwt -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+    $env:COMPLETE = 'powershell'
+    agwt.exe | ForEach-Object {
+        [System.Management.Automation.CompletionResult]::new($_)
+    }
+    Remove-Item Env:\COMPLETE
+}"#
+        }
         _ => unreachable!(),
     };
     println!("{output}");

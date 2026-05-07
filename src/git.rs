@@ -620,12 +620,20 @@ fn make_fetch_options(prune: bool, verbose: bool) -> (FetchOptions<'static>, Arc
         pb_clone.set_message(format!("{kib} KiB"));
         true
     });
+    let pb_sideband = Arc::clone(&pb);
+    cb.sideband_progress(move |data| {
+        let msg = String::from_utf8_lossy(data);
+        let trimmed = msg.trim();
+        if !trimmed.is_empty() {
+            if verbose {
+                eprint!("remote: {msg}");
+            } else {
+                pb_sideband.set_message(trimmed.to_string());
+            }
+        }
+        true
+    });
     if verbose {
-        cb.sideband_progress(|data| {
-            let msg = String::from_utf8_lossy(data);
-            eprint!("remote: {msg}");
-            true
-        });
         cb.update_tips(|refname, old, new| {
             if old.is_zero() {
                 eprintln!(" * [new ref]   {refname} -> {new}");
