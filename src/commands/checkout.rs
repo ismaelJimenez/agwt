@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use anstream::eprintln;
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 
-use crate::git::{git, parent_of_bare, run, set_branch_base};
+use crate::git::{self, branch_exists, parent_of_bare, set_branch_base, set_branch_upstream};
 use crate::{BOLD, GREEN};
 
 pub fn cmd_checkout(
@@ -19,13 +19,8 @@ pub fn cmd_checkout(
         bail!("directory already exists: {}", target_dir.display());
     }
 
-    let fetch_result = git(bare_dir)
-        .args(["fetch", "--quiet", remote, branch])
-        .stderr(std::process::Stdio::null())
-        .status()
-        .with_context(|| "failed to execute git fetch".to_string())?;
-
-    if !fetch_result.success() {
+    // Fetch the specific branch from the remote
+    if git::fetch_remote(bare_dir, remote, &[branch]).is_err() {
         bail!(
             "branch '{branch}' not found on remote '{remote}'\n\
              \n\
@@ -36,43 +31,14 @@ pub fn cmd_checkout(
     }
 
     let remote_ref = format!("{}/{}", remote, branch);
-    let local_branch_exists = git(bare_dir)
-        .args([
-            "show-ref",
-            "--verify",
-            "--quiet",
-            &format!("refs/heads/{}", branch),
-        ])
-        .status()
-        .with_context(|| "failed to execute git show-ref")?
-        .success();
+    let local_branch_exists = branch_exists(bare_dir, branch)?;
 
     if local_branch_exists {
-        run(git(bare_dir).args([
-            "worktree",
-            "add",
-            "--quiet",
-            target_dir.to_str().unwrap(),
-            branch,
-        ]))?;
-        let _ = git(bare_dir)
-            .args([
-                "branch",
-                &format!("--set-upstream-to={}", remote_ref),
-                branch,
-            ])
-            .status();
+        git::worktree_add(bare_dir, name, &target_dir, branch)?;
+        let _ = set_branch_upstream(bare_dir, branch, &remote_ref);
     } else {
-        run(git(bare_dir).args([
-            "worktree",
-            "add",
-            "--quiet",
-            "--track",
-            "-b",
-            branch,
-            target_dir.to_str().unwrap(),
-            &remote_ref,
-        ]))?;
+        git::worktree_add_new_branch(bare_dir, name, &target_dir, branch, &remote_ref)?;
+        let _ = set_branch_upstream(bare_dir, branch, &remote_ref);
     }
 
     if let Some(base) = base {

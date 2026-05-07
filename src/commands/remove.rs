@@ -1,10 +1,11 @@
 use std::path::Path;
-use std::process::Command;
 
 use anstream::eprintln;
 use anyhow::{Result, bail};
 
-use crate::git::{get_default_branch, git, list_worktrees, parent_of_bare, run, run_output};
+use crate::git::{
+    self, get_current_branch, get_default_branch, git, list_worktrees_basic, parent_of_bare, run,
+};
 use crate::{BOLD, GREEN, RED, YELLOW};
 
 pub fn cmd_remove(
@@ -24,13 +25,7 @@ pub fn cmd_remove(
     }
 
     // Get the branch name before removing
-    let branch = run_output(Command::new("git").current_dir(&target_dir).args([
-        "rev-parse",
-        "--abbrev-ref",
-        "HEAD",
-    ]))
-    .ok()
-    .map(|s| s.trim().to_string());
+    let branch = get_current_branch(&target_dir).ok();
 
     let mut args = vec!["worktree", "remove"];
     if force {
@@ -48,7 +43,7 @@ pub fn cmd_remove(
     // Clean up the local branch (skip protected branches)
     if let Some(ref b) = branch {
         if b != "HEAD" && b != "master" && b != "main" {
-            if git(bare_dir).args(["branch", "-D", b]).status()?.success() {
+            if git::delete_branch(bare_dir, b) {
                 eprintln!("{GREEN}{:>12}{GREEN:#} branch {BOLD}{b}{BOLD:#}", "Deleted");
             }
 
@@ -58,10 +53,7 @@ pub fn cmd_remove(
                 let mut answer = String::new();
                 std::io::stdin().read_line(&mut answer)?;
                 if answer.trim().eq_ignore_ascii_case("y") {
-                    let status = git(bare_dir)
-                        .args(["push", remote, "--delete", b])
-                        .status()?;
-                    if status.success() {
+                    if git::push_delete_branch(bare_dir, remote, b).is_ok() {
                         eprintln!(
                             "{GREEN}{:>12}{GREEN:#} remote branch {BOLD}{remote}/{b}{BOLD:#}",
                             "Deleted"
@@ -79,8 +71,18 @@ pub fn cmd_remove(
         }
     }
 
-    // Auto-prune stale worktree references
-    let _ = git(bare_dir).args(["worktree", "prune"]).status();
+    // Auto-prune stale worktree references using libgit2
+    if let Ok(repo) = git2::Repository::open_bare(bare_dir) {
+        if let Ok(wt_names) = repo.worktrees() {
+            for wt_name in wt_names.iter().flatten() {
+                if let Ok(wt) = repo.find_worktree(wt_name) {
+                    if wt.is_prunable(None).unwrap_or(false) {
+                        let _ = wt.prune(None);
+                    }
+                }
+            }
+        }
+    }
 
     Ok(())
 }
@@ -93,34 +95,23 @@ pub fn cmd_remove_merged(
 ) -> Result<()> {
     let default_branch = get_default_branch(bare_dir)?;
     let parent = parent_of_bare(bare_dir);
-    let entries = list_worktrees(bare_dir, &parent)?;
+    let entries = list_worktrees_basic(bare_dir, &parent)?;
+
+    // Get all merged branches using libgit2
+    let merged_branches: std::collections::HashSet<String> =
+        git::get_merged_branches(bare_dir, &default_branch)
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
 
     // Find worktrees whose branches are fully merged into the default branch
     let mut merged_names = Vec::new();
     for entry in &entries {
-        if entry.branch == "(detached)" {
+        if entry.branch == "(detached)" || entry.branch == default_branch {
             continue;
         }
-        // Skip the default branch itself
-        if entry.branch == default_branch {
-            continue;
-        }
-        // Check if the branch is merged into the default branch
-        let output = git(bare_dir)
-            .args(["branch", "--merged", &default_branch])
-            .output();
-        if let Ok(output) = output {
-            let branches = String::from_utf8_lossy(&output.stdout);
-            let is_merged = branches.lines().any(|line| {
-                let trimmed = line
-                    .trim()
-                    .trim_start_matches("* ")
-                    .trim_start_matches("+ ");
-                trimmed == entry.branch
-            });
-            if is_merged {
-                merged_names.push(entry.name.clone());
-            }
+        if merged_branches.contains(&entry.branch) {
+            merged_names.push(entry.name.clone());
         }
     }
 

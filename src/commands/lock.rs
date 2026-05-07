@@ -3,7 +3,7 @@ use std::path::Path;
 use anstream::eprintln;
 use anyhow::{Result, bail};
 
-use crate::git::{git, parent_of_bare, run};
+use crate::git::{self, parent_of_bare};
 use crate::{BOLD, GREEN, YELLOW};
 
 pub fn cmd_lock(bare_dir: &Path, name: &str, reason: Option<&str>) -> Result<()> {
@@ -15,12 +15,7 @@ pub fn cmd_lock(bare_dir: &Path, name: &str, reason: Option<&str>) -> Result<()>
         );
     }
 
-    let mut cmd = git(bare_dir);
-    cmd.args(["worktree", "lock", target_dir.to_str().unwrap()]);
-    if let Some(r) = reason {
-        cmd.args(["--reason", r]);
-    }
-    run(&mut cmd)?;
+    git::lock_worktree(bare_dir, &target_dir, reason)?;
 
     eprintln!(
         "{GREEN}{:>12}{GREEN:#} worktree {BOLD}{name}{BOLD:#}",
@@ -38,7 +33,7 @@ pub fn cmd_unlock(bare_dir: &Path, name: &str) -> Result<()> {
         );
     }
 
-    run(git(bare_dir).args(["worktree", "unlock", target_dir.to_str().unwrap()]))?;
+    git::unlock_worktree(bare_dir, &target_dir)?;
 
     eprintln!(
         "{YELLOW}{:>12}{YELLOW:#} worktree {BOLD}{name}{BOLD:#}",

@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use anstream::eprintln;
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 
-use crate::git::{get_default_branch, git, parent_of_bare, run, set_branch_base};
+use crate::git::{self, get_default_branch, parent_of_bare, set_branch_base};
 use crate::{BOLD, GREEN};
 
 pub fn cmd_create(
@@ -24,26 +24,13 @@ pub fn cmd_create(
         None => get_default_branch(bare_dir)?,
     };
 
-    let fetch_result = git(bare_dir)
-        .args(["fetch", "--quiet", remote, &base_ref])
-        .stderr(std::process::Stdio::null())
-        .status()
-        .with_context(|| "failed to execute git fetch".to_string())?;
-
-    if !fetch_result.success() {
+    // Fetch the base branch from the remote
+    if git::fetch_remote(bare_dir, remote, &[&base_ref]).is_err() {
         bail!("base branch '{base_ref}' not found on remote '{remote}'");
     }
 
     let remote_ref = format!("{}/{}", remote, base_ref);
-    run(git(bare_dir).args([
-        "worktree",
-        "add",
-        "--quiet",
-        "-b",
-        branch,
-        target_dir.to_str().unwrap(),
-        &remote_ref,
-    ]))?;
+    git::worktree_add_new_branch(bare_dir, name, &target_dir, branch, &remote_ref)?;
 
     set_branch_base(bare_dir, branch, &base_ref);
 

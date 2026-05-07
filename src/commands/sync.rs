@@ -5,7 +5,7 @@ use std::thread;
 use anstream::eprintln;
 use anyhow::{Result, bail};
 
-use crate::git::{list_worktrees_basic, parent_of_bare, run_output};
+use crate::git::{get_current_branch, is_git_dir, list_worktrees_basic, parent_of_bare};
 use crate::{BOLD, GREEN, RED, YELLOW};
 
 pub fn cmd_sync(bare_dir: &Path, name: Option<&str>, all: bool, remote: &str) -> Result<()> {
@@ -18,12 +18,7 @@ pub fn cmd_sync(bare_dir: &Path, name: Option<&str>, all: bool, remote: &str) ->
         None => {
             // Try to use cwd if it's inside a worktree
             let cwd = std::env::current_dir()?;
-            // Verify it's a git directory
-            let status = Command::new("git")
-                .current_dir(&cwd)
-                .args(["rev-parse", "--git-dir"])
-                .output()?;
-            if !status.status.success() {
+            if !is_git_dir(&cwd) {
                 bail!("current directory is not inside a git worktree; specify a name");
             }
             cwd
@@ -112,19 +107,8 @@ fn sync_one_quiet(
     name: &str,
     remote: &str,
 ) -> std::result::Result<String, SyncError> {
-    let branch = Command::new("git")
-        .current_dir(target_dir)
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| SyncError::Failed(format!("cannot determine branch for '{name}'")))?;
+    let branch = get_current_branch(target_dir)
+        .map_err(|_| SyncError::Failed(format!("cannot determine branch for '{name}'")))?;
 
     let pull_status = Command::new("git")
         .current_dir(target_dir)
@@ -154,16 +138,18 @@ fn sync_one_quiet(
 }
 
 fn sync_one(target_dir: &Path, name: Option<&str>, remote: &str) -> Result<()> {
-    let branch = run_output(Command::new("git").current_dir(target_dir).args([
-        "rev-parse",
-        "--abbrev-ref",
-        "HEAD",
-    ]))?;
-    let branch = branch.trim();
+    let branch = get_current_branch(target_dir)?;
 
     let pull_status = Command::new("git")
         .current_dir(target_dir)
-        .args(["pull", "--rebase", "--autostash", "--quiet", remote, branch])
+        .args([
+            "pull",
+            "--rebase",
+            "--autostash",
+            "--quiet",
+            remote,
+            &branch,
+        ])
         .status()?;
 
     let display_name = name.unwrap_or_else(|| target_dir.file_name().unwrap().to_str().unwrap());

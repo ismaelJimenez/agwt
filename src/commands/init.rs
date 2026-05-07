@@ -1,9 +1,7 @@
-use std::process::Command;
-
 use anstream::eprintln;
 use anyhow::{Result, bail};
 
-use crate::git::{get_default_branch, git, run};
+use crate::git::{self, get_default_branch, set_branch_upstream};
 use crate::{BOLD, GREEN};
 
 pub fn cmd_init(url: &str, name: Option<&str>) -> Result<()> {
@@ -29,52 +27,32 @@ pub fn cmd_init(url: &str, name: Option<&str>) -> Result<()> {
         "{GREEN}{:>12}{GREEN:#} bare repository into {}/...",
         "Cloning", folder_name
     );
-    run(Command::new("git").args([
-        "clone",
-        "--bare",
-        "--quiet",
-        url,
-        bare_dir.to_str().unwrap(),
-    ]))?;
+    git::clone_bare(url, &bare_dir)?;
 
-    // Configure fetch refspec so `git fetch` works properly
-    run(Command::new("git").current_dir(&bare_dir).args([
-        "config",
-        "remote.origin.fetch",
-        "+refs/heads/*:refs/remotes/origin/*",
-    ]))?;
+    // Configure fetch refspec and push settings using libgit2
+    {
+        let repo = git2::Repository::open_bare(&bare_dir)?;
+        let mut config = repo.config()?;
+        config.set_str("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")?;
+        config.set_str("push.autoSetupRemote", "true")?;
+    }
 
     // Fetch to populate remote tracking refs
-    run(Command::new("git")
-        .current_dir(&bare_dir)
-        .args(["fetch", "--quiet", "origin"]))?;
-
-    // Enable auto upstream so `git push` just works for new branches
-    run(Command::new("git").current_dir(&bare_dir).args([
-        "config",
-        "push.autoSetupRemote",
-        "true",
-    ]))?;
+    git::fetch_remote(&bare_dir, "origin", &[])?;
 
     // Create a worktree for the default branch
     let default_branch = get_default_branch(&bare_dir)?;
     let wt_name = default_branch.replace('/', "-");
     let wt_dir = project_dir.join(&wt_name);
 
-    run(git(&bare_dir).args([
-        "worktree",
-        "add",
-        "--quiet",
-        wt_dir.to_str().unwrap(),
-        &default_branch,
-    ]))?;
+    git::worktree_add(&bare_dir, &wt_name, &wt_dir, &default_branch)?;
 
     // Set upstream tracking for the default branch
-    run(Command::new("git").current_dir(&wt_dir).args([
-        "branch",
-        "--set-upstream-to",
+    let _ = set_branch_upstream(
+        &bare_dir,
+        &default_branch,
         &format!("origin/{default_branch}"),
-    ]))?;
+    );
 
     eprintln!(
         "{GREEN}{:>12}{GREEN:#} worktree {BOLD}{wt_name}{BOLD:#} at {}",

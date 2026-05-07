@@ -4,10 +4,10 @@ use anstream::eprintln;
 use anyhow::Result;
 
 use crate::GREEN;
-use crate::git::{git, run};
+use crate::git;
 
 pub fn cmd_fetch(bare_dir: &Path) -> Result<()> {
-    run(git(bare_dir).args(["fetch", "--quiet", "--all", "--prune"]))?;
+    git::fetch_all_remotes(bare_dir)?;
     eprintln!("{GREEN}{:>12}{GREEN:#} all remotes", "Fetched");
     Ok(())
 }

@@ -1,10 +1,11 @@
+use std::collections::HashSet;
 use std::path::Path;
-use std::process::Command;
+use std::thread;
 
 use anstream::eprintln;
-use anyhow::{Context, Result};
+use anyhow::Result;
 
-use crate::git::{git, list_worktrees, parent_of_bare, run, run_output};
+use crate::git::{self, list_worktrees_basic, parent_of_bare};
 use crate::{BOLD, GREEN, YELLOW};
 
 pub fn cmd_doctor(bare_dir: &Path) -> Result<()> {
@@ -13,113 +14,79 @@ pub fn cmd_doctor(bare_dir: &Path) -> Result<()> {
 
     // 0. Fetch all remotes with prune to get fresh state
     eprintln!("{GREEN}{:>12}{GREEN:#} all remotes...", "Fetching");
-    let _ = git(bare_dir)
-        .args(["fetch", "--quiet", "--all", "--prune"])
-        .status();
+    let _ = git::fetch_all_remotes(bare_dir);
 
-    // 1. Prune stale worktree references
-    let prune_check = git(bare_dir)
-        .args(["worktree", "prune", "--dry-run"])
-        .output()
-        .context("failed to run git worktree prune --dry-run")?;
-    let prune_output = String::from_utf8_lossy(&prune_check.stderr);
-    if !prune_output.trim().is_empty() {
-        for line in prune_output.trim().lines() {
-            eprintln!("{YELLOW}{:>12}{YELLOW:#} {line}", "Stale");
-            issues += 1;
-        }
-        run(git(bare_dir).args(["worktree", "prune"]))?;
-        eprintln!("{GREEN}{:>12}{GREEN:#} stale worktree references", "Pruned");
-    }
-
-    // 2. Check each worktree for issues
-    let entries = list_worktrees(bare_dir, &parent)?;
-
-    for wt in &entries {
-        if !wt.path.exists() {
-            continue;
-        }
-
-        let b = &wt.branch;
-        if b == "(detached)" {
-            continue;
-        }
-
-        // Check upstream status using for-each-ref (detects "gone" after fetch --prune)
-        let upstream_status = run_output(git(bare_dir).args([
-            "for-each-ref",
-            "--format=%(upstream:track,nobracket)",
-            &format!("refs/heads/{b}"),
-        ]));
-
-        if let Ok(ref status_str) = upstream_status {
-            let status_str = status_str.trim();
-            if status_str == "gone" {
-                eprintln!(
-                    "{YELLOW}{:>12}{YELLOW:#} {} — branch '{b}' no longer exists on remote",
-                    "Gone", wt.name
-                );
-                issues += 1;
-                continue;
-            }
-        }
-
-        // Check if branch has upstream at all
-        let upstream = Command::new("git")
-            .current_dir(&wt.path)
-            .args(["rev-parse", "--abbrev-ref", &format!("{b}@{{upstream}}")])
-            .output();
-
-        if let Ok(out) = upstream {
-            if !out.status.success() {
-                eprintln!(
-                    "{YELLOW}{:>12}{YELLOW:#} {} — branch '{b}' has no upstream; push to publish or remove if stale",
-                    "Warning", wt.name
-                );
-                issues += 1;
-                continue;
-            }
-        }
-
-        // Check ahead/behind and dirty state
-        let status = Command::new("git")
-            .current_dir(&wt.path)
-            .args(["status", "--porcelain=v2", "--branch"])
-            .output();
-
-        if let Ok(out) = status {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            for sline in stdout.lines() {
-                if let Some(ab) = sline.strip_prefix("# branch.ab ") {
-                    let parts: Vec<&str> = ab.split_whitespace().collect();
-                    if parts.len() == 2 {
-                        let ahead: i32 = parts[0].parse().unwrap_or(0);
-                        let behind: i32 = parts[1].parse().unwrap_or(0);
-                        if behind < 0 {
-                            eprintln!(
-                                "{YELLOW}{:>12}{YELLOW:#} {} — {} commit(s) behind upstream",
-                                "Behind", wt.name, -behind
-                            );
-                            issues += 1;
-                        }
-                        if ahead > 0 {
-                            eprintln!(
-                                "{YELLOW}{:>12}{YELLOW:#} {} — {} commit(s) ahead (unpushed)",
-                                "Ahead", wt.name, ahead
-                            );
-                            issues += 1;
-                        }
+    // 1. Prune stale worktree references using libgit2
+    if let Ok(repo) = git2::Repository::open_bare(bare_dir) {
+        if let Ok(wt_names) = repo.worktrees() {
+            for wt_name in wt_names.iter().flatten() {
+                if let Ok(wt) = repo.find_worktree(wt_name) {
+                    if wt.is_prunable(None).unwrap_or(false) {
+                        eprintln!(
+                            "{YELLOW}{:>12}{YELLOW:#} Pruning worktree: {wt_name}",
+                            "Stale"
+                        );
+                        let _ = wt.prune(None);
+                        issues += 1;
                     }
                 }
             }
+            if issues > 0 {
+                eprintln!("{GREEN}{:>12}{GREEN:#} stale worktree references", "Pruned");
+            }
+        }
+    }
 
-            let has_changes = stdout.lines().any(|l| !l.starts_with('#'));
-            if has_changes {
-                eprintln!(
-                    "{YELLOW}{:>12}{YELLOW:#} {} — uncommitted changes",
-                    "Dirty", wt.name
-                );
-                issues += 1;
+    // 2. Get all "gone" branches using libgit2
+    let gone_branches: HashSet<String> = git::get_gone_branches(bare_dir).into_iter().collect();
+
+    // 3. Check each worktree for issues in parallel
+    let entries = list_worktrees_basic(bare_dir, &parent)?;
+
+    let handles: Vec<_> = entries
+        .into_iter()
+        .filter(|wt| wt.path.exists() && wt.branch != "(detached)")
+        .map(|wt| {
+            let is_gone = gone_branches.contains(&wt.branch);
+            thread::spawn(move || diagnose_worktree(&wt.path, &wt.name, &wt.branch, is_gone))
+        })
+        .collect();
+
+    for handle in handles {
+        let diagnostics = handle.join().expect("doctor thread panicked");
+        for diag in diagnostics {
+            issues += 1;
+            match diag {
+                Diagnostic::Gone(name, branch) => {
+                    eprintln!(
+                        "{YELLOW}{:>12}{YELLOW:#} {name} — branch '{branch}' no longer exists on remote",
+                        "Gone"
+                    );
+                }
+                Diagnostic::NoUpstream(name, branch) => {
+                    eprintln!(
+                        "{YELLOW}{:>12}{YELLOW:#} {name} — branch '{branch}' has no upstream; push to publish or remove if stale",
+                        "Warning"
+                    );
+                }
+                Diagnostic::Behind(name, count) => {
+                    eprintln!(
+                        "{YELLOW}{:>12}{YELLOW:#} {name} — {count} commit(s) behind upstream",
+                        "Behind"
+                    );
+                }
+                Diagnostic::Ahead(name, count) => {
+                    eprintln!(
+                        "{YELLOW}{:>12}{YELLOW:#} {name} — {count} commit(s) ahead (unpushed)",
+                        "Ahead"
+                    );
+                }
+                Diagnostic::Dirty(name) => {
+                    eprintln!(
+                        "{YELLOW}{:>12}{YELLOW:#} {name} — uncommitted changes",
+                        "Dirty"
+                    );
+                }
             }
         }
     }
@@ -132,4 +99,76 @@ pub fn cmd_doctor(bare_dir: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+enum Diagnostic {
+    Gone(String, String),
+    NoUpstream(String, String),
+    Behind(String, u32),
+    Ahead(String, u32),
+    Dirty(String),
+}
+
+/// Diagnose a single worktree using libgit2 — no subprocess needed.
+fn diagnose_worktree(wt_path: &Path, name: &str, branch: &str, is_gone: bool) -> Vec<Diagnostic> {
+    let mut diags = Vec::new();
+
+    if is_gone {
+        diags.push(Diagnostic::Gone(name.to_string(), branch.to_string()));
+        return diags;
+    }
+
+    let Ok(repo) = git2::Repository::open(wt_path) else {
+        return diags;
+    };
+
+    // Check upstream
+    let has_upstream = if let Ok(local_branch) = repo.find_branch(branch, git2::BranchType::Local) {
+        if local_branch.upstream().is_ok() {
+            true
+        } else {
+            diags.push(Diagnostic::NoUpstream(name.to_string(), branch.to_string()));
+            return diags;
+        }
+    } else {
+        false
+    };
+
+    // Check ahead/behind
+    if has_upstream {
+        let local_ref = format!("refs/heads/{branch}");
+        if let Ok(local_oid) = repo.refname_to_id(&local_ref) {
+            if let Ok(local_branch) = repo.find_branch(branch, git2::BranchType::Local) {
+                if let Ok(upstream) = local_branch.upstream() {
+                    if let Some(upstream_ref) = upstream.get().name() {
+                        if let Ok(upstream_oid) = repo.refname_to_id(upstream_ref) {
+                            if let Ok((ahead, behind)) =
+                                repo.graph_ahead_behind(local_oid, upstream_oid)
+                            {
+                                if behind > 0 {
+                                    diags.push(Diagnostic::Behind(name.to_string(), behind as u32));
+                                }
+                                if ahead > 0 {
+                                    diags.push(Diagnostic::Ahead(name.to_string(), ahead as u32));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Check dirty status
+    let mut opts = git2::StatusOptions::new();
+    opts.include_untracked(true)
+        .recurse_untracked_dirs(false)
+        .include_unmodified(false);
+    if let Ok(statuses) = repo.statuses(Some(&mut opts)) {
+        if !statuses.is_empty() {
+            diags.push(Diagnostic::Dirty(name.to_string()));
+        }
+    }
+
+    diags
 }
