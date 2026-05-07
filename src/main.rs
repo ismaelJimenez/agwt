@@ -35,6 +35,10 @@ struct Cli {
     #[arg(long, short = 'C', global = true)]
     bare_dir: Option<PathBuf>,
 
+    /// Show verbose git output (transfer details, server messages)
+    #[arg(long, global = true)]
+    verbose: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -199,8 +203,9 @@ fn main() {
 
     let cli = Cli::parse();
 
+    let verbose = cli.verbose;
     let result = match cli.command {
-        Commands::Init { url, name } => cmd_init(&url, name.as_deref()),
+        Commands::Init { url, name } => cmd_init(&url, name.as_deref(), verbose),
         Commands::ShellInit { shell } => cmd_shell_init(&shell),
         _ => {
             let bare_dir = match resolve_bare_dir(cli.bare_dir.as_deref()) {
@@ -219,7 +224,14 @@ fn main() {
                     remote,
                 } => {
                     let dir_name = name.unwrap_or_else(|| branch.replace('/', "-"));
-                    cmd_create(&bare_dir, &dir_name, &branch, base.as_deref(), &remote)
+                    cmd_create(
+                        &bare_dir,
+                        &dir_name,
+                        &branch,
+                        base.as_deref(),
+                        &remote,
+                        verbose,
+                    )
                 }
                 Commands::Checkout {
                     branch,
@@ -228,7 +240,14 @@ fn main() {
                     remote,
                 } => {
                     let dir_name = name.unwrap_or_else(|| branch.replace('/', "-"));
-                    cmd_checkout(&bare_dir, &dir_name, &branch, base.as_deref(), &remote)
+                    cmd_checkout(
+                        &bare_dir,
+                        &dir_name,
+                        &branch,
+                        base.as_deref(),
+                        &remote,
+                        verbose,
+                    )
                 }
                 Commands::Remove {
                     name,
@@ -238,7 +257,7 @@ fn main() {
                     remote,
                 } => {
                     if merged {
-                        cmd_remove_merged(&bare_dir, force, delete_remote, &remote)
+                        cmd_remove_merged(&bare_dir, force, delete_remote, &remote, verbose)
                     } else {
                         let Some(name) = name else {
                             eprintln!(
@@ -246,19 +265,19 @@ fn main() {
                             );
                             std::process::exit(1);
                         };
-                        cmd_remove(&bare_dir, &name, force, delete_remote, &remote)
+                        cmd_remove(&bare_dir, &name, force, delete_remote, &remote, verbose)
                     }
                 }
                 Commands::Sync { name, all, remote } => {
-                    cmd_sync(&bare_dir, name.as_deref(), all, &remote)
+                    cmd_sync(&bare_dir, name.as_deref(), all, &remote, verbose)
                 }
-                Commands::Fetch => cmd_fetch(&bare_dir),
+                Commands::Fetch => cmd_fetch(&bare_dir, verbose),
                 Commands::Cd { name } => cmd_cd(&bare_dir, &name),
                 Commands::Open { name, editor } => cmd_open(&bare_dir, &name, editor.as_deref()),
                 Commands::Move { name, new_name } => cmd_move(&bare_dir, &name, &new_name),
                 Commands::Lock { name, reason } => cmd_lock(&bare_dir, &name, reason.as_deref()),
                 Commands::Unlock { name } => cmd_unlock(&bare_dir, &name),
-                Commands::Doctor => cmd_doctor(&bare_dir),
+                Commands::Doctor => cmd_doctor(&bare_dir, verbose),
                 Commands::Init { .. } | Commands::ShellInit { .. } => unreachable!(),
             }
         }

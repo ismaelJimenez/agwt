@@ -606,7 +606,7 @@ fn finish_progress(pb: &ProgressBar) {
 }
 
 /// Create FetchOptions with credential callbacks, transfer progress, and optional prune.
-fn make_fetch_options(prune: bool) -> (FetchOptions<'static>, Arc<ProgressBar>) {
+fn make_fetch_options(prune: bool, verbose: bool) -> (FetchOptions<'static>, Arc<ProgressBar>) {
     let mut cb = make_credentials_callback();
     let pb = make_transfer_progress_bar();
     let pb_clone = Arc::clone(&pb);
@@ -620,6 +620,21 @@ fn make_fetch_options(prune: bool) -> (FetchOptions<'static>, Arc<ProgressBar>) 
         pb_clone.set_message(format!("{kib} KiB"));
         true
     });
+    if verbose {
+        cb.sideband_progress(|data| {
+            let msg = String::from_utf8_lossy(data);
+            eprint!("remote: {msg}");
+            true
+        });
+        cb.update_tips(|refname, old, new| {
+            if old.is_zero() {
+                eprintln!(" * [new ref]   {refname} -> {new}");
+            } else {
+                eprintln!("   {old:.7}..{new:.7} {refname}");
+            }
+            true
+        });
+    }
     let mut fo = FetchOptions::new();
     fo.remote_callbacks(cb);
     if prune {
@@ -629,13 +644,18 @@ fn make_fetch_options(prune: bool) -> (FetchOptions<'static>, Arc<ProgressBar>) 
 }
 
 /// Fetch a specific remote (with prune) using libgit2.
-pub fn fetch_remote(bare_dir: &Path, remote_name: &str, refspecs: &[&str]) -> Result<()> {
+pub fn fetch_remote(
+    bare_dir: &Path,
+    remote_name: &str,
+    refspecs: &[&str],
+    verbose: bool,
+) -> Result<()> {
     let repo = Repository::open_bare(bare_dir)
         .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
     let mut remote = repo
         .find_remote(remote_name)
         .with_context(|| format!("remote '{}' not found", remote_name))?;
-    let (mut fo, pb) = make_fetch_options(true);
+    let (mut fo, pb) = make_fetch_options(true, verbose);
     remote
         .fetch(refspecs, Some(&mut fo), None)
         .with_context(|| format!("failed to fetch from '{}'", remote_name))?;
@@ -644,13 +664,16 @@ pub fn fetch_remote(bare_dir: &Path, remote_name: &str, refspecs: &[&str]) -> Re
 }
 
 /// Fetch all remotes (with prune) using libgit2.
-pub fn fetch_all_remotes(bare_dir: &Path) -> Result<()> {
+pub fn fetch_all_remotes(bare_dir: &Path, verbose: bool) -> Result<()> {
     let repo = Repository::open_bare(bare_dir)
         .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
     let remotes = repo.remotes().context("failed to list remotes")?;
     for remote_name in remotes.iter().flatten() {
+        if verbose {
+            eprintln!("Fetching {remote_name}...");
+        }
         let mut remote = repo.find_remote(remote_name)?;
-        let (mut fo, pb) = make_fetch_options(true);
+        let (mut fo, pb) = make_fetch_options(true, verbose);
         remote
             .fetch(&[] as &[&str], Some(&mut fo), None)
             .with_context(|| format!("failed to fetch from '{remote_name}'"))?;
@@ -709,8 +732,8 @@ pub fn worktree_add_new_branch(
 }
 
 /// Bare clone a repository using libgit2.
-pub fn clone_bare(url: &str, dest: &Path) -> Result<()> {
-    let (fo, pb) = make_fetch_options(false);
+pub fn clone_bare(url: &str, dest: &Path, verbose: bool) -> Result<()> {
+    let (fo, pb) = make_fetch_options(false, verbose);
     let mut builder = git2::build::RepoBuilder::new();
     builder.bare(true);
     builder.fetch_options(fo);
@@ -722,13 +745,33 @@ pub fn clone_bare(url: &str, dest: &Path) -> Result<()> {
 }
 
 /// Push a delete refspec to remove a remote branch.
-pub fn push_delete_branch(bare_dir: &Path, remote_name: &str, branch: &str) -> Result<()> {
+pub fn push_delete_branch(
+    bare_dir: &Path,
+    remote_name: &str,
+    branch: &str,
+    verbose: bool,
+) -> Result<()> {
     let repo = Repository::open_bare(bare_dir)
         .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
     let mut remote = repo
         .find_remote(remote_name)
         .with_context(|| format!("remote '{}' not found", remote_name))?;
-    let cb = make_credentials_callback();
+    let mut cb = make_credentials_callback();
+    if verbose {
+        cb.sideband_progress(|data| {
+            let msg = String::from_utf8_lossy(data);
+            eprint!("remote: {msg}");
+            true
+        });
+        cb.push_update_reference(|refname, status| {
+            if let Some(msg) = status {
+                eprintln!(" ! [rejected] {refname} ({msg})");
+            } else {
+                eprintln!(" - [deleted] {refname}");
+            }
+            Ok(())
+        });
+    }
     let mut push_opts = git2::PushOptions::new();
     push_opts.remote_callbacks(cb);
     let refspec = format!(":refs/heads/{branch}");

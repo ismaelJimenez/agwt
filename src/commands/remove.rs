@@ -14,6 +14,7 @@ pub fn cmd_remove(
     force: bool,
     delete_remote: bool,
     remote: &str,
+    verbose: bool,
 ) -> Result<()> {
     let target_dir = parent_of_bare(bare_dir).join(name);
 
@@ -53,7 +54,7 @@ pub fn cmd_remove(
                 let mut answer = String::new();
                 std::io::stdin().read_line(&mut answer)?;
                 if answer.trim().eq_ignore_ascii_case("y") {
-                    if git::push_delete_branch(bare_dir, remote, b).is_ok() {
+                    if git::push_delete_branch(bare_dir, remote, b, verbose).is_ok() {
                         eprintln!(
                             "{GREEN}{:>12}{GREEN:#} remote branch {BOLD}{remote}/{b}{BOLD:#}",
                             "Deleted"
@@ -92,6 +93,7 @@ pub fn cmd_remove_merged(
     force: bool,
     delete_remote: bool,
     remote: &str,
+    verbose: bool,
 ) -> Result<()> {
     let default_branch = get_default_branch(bare_dir)?;
     let parent = parent_of_bare(bare_dir);
@@ -127,7 +129,7 @@ pub fn cmd_remove_merged(
     );
 
     for name in &merged_names {
-        if let Err(e) = cmd_remove(bare_dir, name, force, delete_remote, remote) {
+        if let Err(e) = cmd_remove(bare_dir, name, force, delete_remote, remote, verbose) {
             eprintln!(
                 "{RED}{:>12}{RED:#} removing {BOLD}{name}{BOLD:#}: {e:#}",
                 "Failed"

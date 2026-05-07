@@ -4,7 +4,7 @@ use anyhow::{Result, bail};
 use crate::git::{self, get_default_branch, set_branch_upstream};
 use crate::{BOLD, GREEN};
 
-pub fn cmd_init(url: &str, name: Option<&str>) -> Result<()> {
+pub fn cmd_init(url: &str, name: Option<&str>, verbose: bool) -> Result<()> {
     let cwd = std::env::current_dir()?;
 
     let folder_name = match name {
@@ -27,7 +27,7 @@ pub fn cmd_init(url: &str, name: Option<&str>) -> Result<()> {
         "{GREEN}{:>12}{GREEN:#} bare repository into {}/...",
         "Cloning", folder_name
     );
-    git::clone_bare(url, &bare_dir)?;
+    git::clone_bare(url, &bare_dir, verbose)?;
 
     // Configure fetch refspec and push settings using libgit2
     {
@@ -38,7 +38,7 @@ pub fn cmd_init(url: &str, name: Option<&str>) -> Result<()> {
     }
 
     // Fetch to populate remote tracking refs
-    git::fetch_remote(&bare_dir, "origin", &[])?;
+    git::fetch_remote(&bare_dir, "origin", &[], verbose)?;
 
     // Create a worktree for the default branch
     let default_branch = get_default_branch(&bare_dir)?;

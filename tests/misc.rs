@@ -357,6 +357,28 @@ fn version_flag() {
         .stdout(predicate::str::contains("agwt"));
 }
 
+/// --verbose flag is accepted and fetch still succeeds
+#[test]
+fn verbose_flag_fetch() {
+    let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
+    gwt(&bare_dir)
+        .args(["--verbose", "fetch"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Fetched"));
+}
+
+/// --verbose flag works with create
+#[test]
+fn verbose_flag_create() {
+    let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
+    gwt(&bare_dir)
+        .args(["--verbose", "create", "test/verbose-branch"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Created"));
+}
+
 // =============================================================================
 // full lifecycle
 // =============================================================================

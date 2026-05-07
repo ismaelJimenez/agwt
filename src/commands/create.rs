@@ -12,6 +12,7 @@ pub fn cmd_create(
     branch: &str,
     base: Option<&str>,
     remote: &str,
+    verbose: bool,
 ) -> Result<()> {
     let target_dir = parent_of_bare(bare_dir).join(name);
 
@@ -25,7 +26,7 @@ pub fn cmd_create(
     };
 
     // Fetch the base branch from the remote
-    if git::fetch_remote(bare_dir, remote, &[&base_ref]).is_err() {
+    if git::fetch_remote(bare_dir, remote, &[&base_ref], verbose).is_err() {
         bail!("base branch '{base_ref}' not found on remote '{remote}'");
     }
 

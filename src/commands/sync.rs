@@ -8,9 +8,15 @@ use anyhow::{Result, bail};
 use crate::git::{get_current_branch, is_git_dir, list_worktrees_basic, parent_of_bare};
 use crate::{BOLD, GREEN, RED, YELLOW};
 
-pub fn cmd_sync(bare_dir: &Path, name: Option<&str>, all: bool, remote: &str) -> Result<()> {
+pub fn cmd_sync(
+    bare_dir: &Path,
+    name: Option<&str>,
+    all: bool,
+    remote: &str,
+    verbose: bool,
+) -> Result<()> {
     if all {
-        return cmd_sync_all(bare_dir, remote);
+        return cmd_sync_all(bare_dir, remote, verbose);
     }
 
     let target_dir = match name {
@@ -25,10 +31,10 @@ pub fn cmd_sync(bare_dir: &Path, name: Option<&str>, all: bool, remote: &str) ->
         }
     };
 
-    sync_one(&target_dir, name, remote)
+    sync_one(&target_dir, name, remote, verbose)
 }
 
-fn cmd_sync_all(bare_dir: &Path, remote: &str) -> Result<()> {
+fn cmd_sync_all(bare_dir: &Path, remote: &str, verbose: bool) -> Result<()> {
     let parent = parent_of_bare(bare_dir);
     let entries = list_worktrees_basic(bare_dir, &parent)?;
 
@@ -44,7 +50,7 @@ fn cmd_sync_all(bare_dir: &Path, remote: &str) -> Result<()> {
         .map(|entry| {
             let remote = remote.clone();
             thread::spawn(move || {
-                let result = sync_one_quiet(&entry.path, &entry.name, &remote);
+                let result = sync_one_quiet(&entry.path, &entry.name, &remote, verbose);
                 (entry.name, entry.path, result)
             })
         })
@@ -106,20 +112,21 @@ fn sync_one_quiet(
     target_dir: &Path,
     name: &str,
     remote: &str,
+    verbose: bool,
 ) -> std::result::Result<String, SyncError> {
     let branch = get_current_branch(target_dir)
         .map_err(|_| SyncError::Failed(format!("cannot determine branch for '{name}'")))?;
 
+    let mut args = vec!["pull", "--rebase", "--autostash"];
+    if !verbose {
+        args.push("--quiet");
+    }
+    args.push(remote);
+    args.push(&branch);
+
     let pull_status = Command::new("git")
         .current_dir(target_dir)
-        .args([
-            "pull",
-            "--rebase",
-            "--autostash",
-            "--quiet",
-            remote,
-            &branch,
-        ])
+        .args(&args)
         .status()
         .map_err(|e| SyncError::Failed(format!("failed to run git pull: {e}")))?;
 
@@ -137,19 +144,19 @@ fn sync_one_quiet(
     Ok(branch)
 }
 
-fn sync_one(target_dir: &Path, name: Option<&str>, remote: &str) -> Result<()> {
+fn sync_one(target_dir: &Path, name: Option<&str>, remote: &str, verbose: bool) -> Result<()> {
     let branch = get_current_branch(target_dir)?;
+
+    let mut args = vec!["pull", "--rebase", "--autostash"];
+    if !verbose {
+        args.push("--quiet");
+    }
+    args.push(remote);
+    args.push(&branch);
 
     let pull_status = Command::new("git")
         .current_dir(target_dir)
-        .args([
-            "pull",
-            "--rebase",
-            "--autostash",
-            "--quiet",
-            remote,
-            &branch,
-        ])
+        .args(&args)
         .status()?;
 
     let display_name = name.unwrap_or_else(|| target_dir.file_name().unwrap().to_str().unwrap());

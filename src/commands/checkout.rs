@@ -12,6 +12,7 @@ pub fn cmd_checkout(
     branch: &str,
     base: Option<&str>,
     remote: &str,
+    verbose: bool,
 ) -> Result<()> {
     let target_dir = parent_of_bare(bare_dir).join(name);
 
@@ -20,7 +21,7 @@ pub fn cmd_checkout(
     }
 
     // Fetch the specific branch from the remote
-    if git::fetch_remote(bare_dir, remote, &[branch]).is_err() {
+    if git::fetch_remote(bare_dir, remote, &[branch], verbose).is_err() {
         bail!(
             "branch '{branch}' not found on remote '{remote}'\n\
              \n\
