@@ -1,10 +1,11 @@
 use std::path::Path;
 use std::process::Command;
+use std::thread;
 
 use anstream::eprintln;
 use anyhow::{Result, bail};
 
-use crate::git::{list_worktrees, parent_of_bare, run_output};
+use crate::git::{list_worktrees_basic, parent_of_bare, run_output};
 use crate::{BOLD, GREEN, RED, YELLOW};
 
 pub fn cmd_sync(bare_dir: &Path, name: Option<&str>, all: bool, remote: &str) -> Result<()> {
@@ -34,22 +35,57 @@ pub fn cmd_sync(bare_dir: &Path, name: Option<&str>, all: bool, remote: &str) ->
 
 fn cmd_sync_all(bare_dir: &Path, remote: &str) -> Result<()> {
     let parent = parent_of_bare(bare_dir);
-    let entries = list_worktrees(bare_dir, &parent)?;
+    let entries = list_worktrees_basic(bare_dir, &parent)?;
 
     if entries.is_empty() {
         eprintln!("No worktrees to sync");
         return Ok(());
     }
 
-    let mut failures = Vec::new();
+    // Sync all worktrees in parallel since each operates on a separate directory
+    let remote = remote.to_string();
+    let handles: Vec<_> = entries
+        .into_iter()
+        .map(|entry| {
+            let remote = remote.clone();
+            thread::spawn(move || {
+                let result = sync_one_quiet(&entry.path, &entry.name, &remote);
+                (entry.name, entry.path, result)
+            })
+        })
+        .collect();
 
-    for entry in &entries {
-        if let Err(e) = sync_one(&entry.path, Some(&entry.name), remote) {
-            eprintln!(
-                "{RED}{:>12}{RED:#} worktree {BOLD}{}{BOLD:#}: {e:#}",
-                "Failed", entry.name
-            );
-            failures.push(entry.name.clone());
+    let mut failures = Vec::new();
+    for handle in handles {
+        let (name, path, result) = handle.join().expect("sync thread panicked");
+        match result {
+            Ok(branch) => {
+                eprintln!(
+                    "{GREEN}{:>12}{GREEN:#} worktree {BOLD}{name}{BOLD:#} (branch {BOLD}{branch}{BOLD:#})",
+                    "Synced"
+                );
+            }
+            Err(SyncError::Conflict) => {
+                eprintln!(
+                    "{YELLOW}{:>12}{YELLOW:#} worktree {BOLD}{name}{BOLD:#} has rebase conflicts",
+                    "Conflict"
+                );
+                eprintln!();
+                eprintln!("  Resolve conflicts in the worktree, then:");
+                eprintln!("    cd {}", path.display());
+                eprintln!("    git rebase --continue");
+                eprintln!();
+                eprintln!("  Or abort the rebase:");
+                eprintln!("    git rebase --abort");
+                failures.push(name);
+            }
+            Err(SyncError::Failed(e)) => {
+                eprintln!(
+                    "{RED}{:>12}{RED:#} worktree {BOLD}{name}{BOLD:#}: {e}",
+                    "Failed"
+                );
+                failures.push(name);
+            }
         }
     }
 
@@ -62,6 +98,59 @@ fn cmd_sync_all(bare_dir: &Path, remote: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+enum SyncError {
+    Conflict,
+    Failed(String),
+}
+
+/// Sync a single worktree, returning the branch name on success.
+/// This is a thread-safe version that doesn't print directly.
+fn sync_one_quiet(
+    target_dir: &Path,
+    name: &str,
+    remote: &str,
+) -> std::result::Result<String, SyncError> {
+    let branch = Command::new("git")
+        .current_dir(target_dir)
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| SyncError::Failed(format!("cannot determine branch for '{name}'")))?;
+
+    let pull_status = Command::new("git")
+        .current_dir(target_dir)
+        .args([
+            "pull",
+            "--rebase",
+            "--autostash",
+            "--quiet",
+            remote,
+            &branch,
+        ])
+        .status()
+        .map_err(|e| SyncError::Failed(format!("failed to run git pull: {e}")))?;
+
+    if !pull_status.success() {
+        let rebase_dir = target_dir.join(".git/rebase-merge");
+        let rebase_apply = target_dir.join(".git/rebase-apply");
+        if rebase_dir.exists() || rebase_apply.exists() {
+            return Err(SyncError::Conflict);
+        }
+        return Err(SyncError::Failed(format!(
+            "pull --rebase failed for worktree '{name}'"
+        )));
+    }
+
+    Ok(branch)
 }
 
 fn sync_one(target_dir: &Path, name: Option<&str>, remote: &str) -> Result<()> {

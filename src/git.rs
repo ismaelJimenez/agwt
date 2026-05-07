@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::thread;
 
 use anyhow::{Context, Result, bail};
 
@@ -144,22 +145,31 @@ pub fn list_worktrees(bare_dir: &Path, parent: &Path) -> Result<Vec<Worktree>> {
         }
     }
 
-    // Collect status for each worktree
+    // Collect status for each worktree in parallel
     let t0 = std::time::Instant::now();
-    let mut entries = Vec::with_capacity(raw_entries.len());
-    for raw in raw_entries {
-        let (dirty, ahead, behind) = worktree_status(&raw.path, &raw.branch);
-        let base = base_map.get(&raw.branch).cloned();
-        entries.push(Worktree {
-            path: raw.path,
-            name: raw.name,
-            branch: raw.branch,
-            dirty,
-            ahead,
-            behind,
-            locked: raw.locked,
-            base,
-        });
+    let handles: Vec<_> = raw_entries
+        .into_iter()
+        .map(|raw| {
+            let base = base_map.get(&raw.branch).cloned();
+            thread::spawn(move || {
+                let (dirty, ahead, behind) = worktree_status(&raw.path, &raw.branch);
+                Worktree {
+                    path: raw.path,
+                    name: raw.name,
+                    branch: raw.branch,
+                    dirty,
+                    ahead,
+                    behind,
+                    locked: raw.locked,
+                    base,
+                }
+            })
+        })
+        .collect();
+
+    let mut entries = Vec::with_capacity(handles.len());
+    for handle in handles {
+        entries.push(handle.join().expect("worktree status thread panicked"));
     }
     let status_time = t0.elapsed();
 
@@ -172,6 +182,61 @@ pub fn list_worktrees(bare_dir: &Path, parent: &Path) -> Result<Vec<Worktree>> {
             status_time,
             entries.len(),
         );
+    }
+
+    Ok(entries)
+}
+
+/// Lightweight worktree listing that only returns paths, names, and branches.
+/// Skips expensive status checks and config lookups. Use when you only need
+/// to iterate over worktrees (e.g. sync --all).
+pub fn list_worktrees_basic(bare_dir: &Path, parent: &Path) -> Result<Vec<Worktree>> {
+    let output = run_output(git(bare_dir).args(["worktree", "list", "--porcelain"]))?;
+
+    let mut entries = Vec::new();
+    let mut worktree_path: Option<PathBuf> = None;
+    let mut branch: Option<String> = None;
+    let mut is_bare = false;
+    let mut locked = false;
+
+    for line in output.lines().chain(std::iter::once("")) {
+        if line.is_empty() {
+            if let Some(wt_path) = worktree_path.take() {
+                if !is_bare {
+                    let name = wt_path
+                        .strip_prefix(parent)
+                        .unwrap_or(&wt_path)
+                        .to_string_lossy()
+                        .into_owned();
+                    let br = branch.take().unwrap_or_else(|| "(detached)".into());
+                    entries.push(Worktree {
+                        path: wt_path,
+                        name,
+                        branch: br,
+                        dirty: false,
+                        ahead: 0,
+                        behind: 0,
+                        locked,
+                        base: None,
+                    });
+                }
+            }
+            is_bare = false;
+            branch = None;
+            locked = false;
+            continue;
+        }
+        if let Some(path) = line.strip_prefix("worktree ") {
+            worktree_path = Some(PathBuf::from(path));
+        } else if line == "bare" {
+            is_bare = true;
+        } else if let Some(ref_name) = line.strip_prefix("branch refs/heads/") {
+            branch = Some(ref_name.to_string());
+        } else if line.starts_with("detached") {
+            branch = Some("(detached)".into());
+        } else if line == "locked" || line.starts_with("locked ") {
+            locked = true;
+        }
     }
 
     Ok(entries)
