@@ -30,16 +30,37 @@ pub fn cmd_checkout(bare_dir: &Path, name: &str, branch: &str, remote: &str) -> 
     }
 
     let remote_ref = format!("{}/{}", remote, branch);
-    run(git(bare_dir).args([
-        "worktree",
-        "add",
-        "--quiet",
-        "--track",
-        "-b",
-        branch,
-        target_dir.to_str().unwrap(),
-        &remote_ref,
-    ]))?;
+    let local_branch_exists = git(bare_dir)
+        .args([
+            "show-ref",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{}", branch),
+        ])
+        .status()
+        .with_context(|| "failed to execute git show-ref")?
+        .success();
+
+    if local_branch_exists {
+        run(git(bare_dir).args([
+            "worktree",
+            "add",
+            "--quiet",
+            target_dir.to_str().unwrap(),
+            branch,
+        ]))?;
+    } else {
+        run(git(bare_dir).args([
+            "worktree",
+            "add",
+            "--quiet",
+            "--track",
+            "-b",
+            branch,
+            target_dir.to_str().unwrap(),
+            &remote_ref,
+        ]))?;
+    }
 
     eprintln!(
         "{GREEN}{:>12}{GREEN:#} worktree {BOLD}{name}{BOLD:#} at {} (tracking {remote}/{branch})",

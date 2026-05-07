@@ -140,6 +140,73 @@ fn checkout_fails_if_dir_exists() {
         .stderr(predicate::str::contains("already exists"));
 }
 
+/// Checkout: succeeds when local branch already exists (no -b)
+#[test]
+fn checkout_existing_local_branch() {
+    let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
+    let project_dir = bare_dir.parent().unwrap();
+
+    // Create and push a branch
+    gwt(&bare_dir)
+        .args(["create", "test/local-exists"])
+        .assert()
+        .success();
+    let push = std::process::Command::new("git")
+        .args(["push", "--quiet", "origin", "test/local-exists"])
+        .current_dir(project_dir.join("test-local-exists"))
+        .output()
+        .unwrap();
+    assert!(
+        push.status.success(),
+        "push failed: {}",
+        String::from_utf8_lossy(&push.stderr)
+    );
+
+    // Remove worktree but keep local branch (--force removes worktree, branch persists
+    // because it's not merged; we manually remove only the worktree directory)
+    gwt(&bare_dir)
+        .args(["remove", "test-local-exists", "--force"])
+        .assert()
+        .success();
+
+    // Re-create the local branch ref pointing at the remote ref (simulating a local branch
+    // that already exists, e.g. after a bare clone that maps remote refs to local branches)
+    let create_branch = std::process::Command::new("git")
+        .args(["branch", "test/local-exists", "origin/test/local-exists"])
+        .current_dir(&bare_dir)
+        .output()
+        .unwrap();
+    assert!(
+        create_branch.status.success(),
+        "branch create failed: {}",
+        String::from_utf8_lossy(&create_branch.stderr)
+    );
+
+    // Verify the local branch exists
+    let show_ref = std::process::Command::new("git")
+        .args(["show-ref", "--verify", "refs/heads/test/local-exists"])
+        .current_dir(&bare_dir)
+        .output()
+        .unwrap();
+    assert!(show_ref.status.success(), "local branch should exist");
+
+    // Checkout should succeed despite the local branch already existing
+    gwt(&bare_dir)
+        .args(["checkout", "test/local-exists"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Created"));
+
+    // Verify worktree exists
+    assert!(project_dir.join("test-local-exists").exists());
+
+    // cleanup
+    gwt(&bare_dir)
+        .args(["remove", "test-local-exists", "--force"])
+        .assert()
+        .success();
+}
+
 /// Checkout: --remote uses a non-default remote
 #[test]
 fn checkout_with_remote() {
