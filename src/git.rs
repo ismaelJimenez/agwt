@@ -1,5 +1,6 @@
 use std::cell::Cell;
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
@@ -579,9 +580,35 @@ fn make_credentials_callback<'a>() -> RemoteCallbacks<'a> {
     cb
 }
 
-/// Create FetchOptions with credential callbacks and optional prune.
+/// Format a transfer progress line for display on stderr.
+fn format_transfer_progress(received: usize, total: usize, indexed: usize, bytes: usize) -> String {
+    let kib = bytes / 1024;
+    format!(
+        "\r{:>6}/{:<6} objects, {:>5} indexed, {:>6} KiB",
+        received, total, indexed, kib
+    )
+}
+
+/// Clear the progress line on stderr.
+fn clear_progress_line() {
+    eprint!("\r\x1b[2K");
+    let _ = std::io::stderr().flush();
+}
+
+/// Create FetchOptions with credential callbacks, transfer progress, and optional prune.
 fn make_fetch_options(prune: bool) -> FetchOptions<'static> {
-    let cb = make_credentials_callback();
+    let mut cb = make_credentials_callback();
+    cb.transfer_progress(|stats| {
+        let msg = format_transfer_progress(
+            stats.received_objects(),
+            stats.total_objects(),
+            stats.indexed_objects(),
+            stats.received_bytes(),
+        );
+        eprint!("{msg}");
+        let _ = std::io::stderr().flush();
+        true
+    });
     let mut fo = FetchOptions::new();
     fo.remote_callbacks(cb);
     if prune {
@@ -601,6 +628,7 @@ pub fn fetch_remote(bare_dir: &Path, remote_name: &str, refspecs: &[&str]) -> Re
     remote
         .fetch(refspecs, Some(&mut fo), None)
         .with_context(|| format!("failed to fetch from '{}'", remote_name))?;
+    clear_progress_line();
     Ok(())
 }
 
@@ -615,6 +643,7 @@ pub fn fetch_all_remotes(bare_dir: &Path) -> Result<()> {
         remote
             .fetch(&[] as &[&str], Some(&mut fo), None)
             .with_context(|| format!("failed to fetch from '{remote_name}'"))?;
+        clear_progress_line();
     }
     Ok(())
 }
@@ -670,15 +699,14 @@ pub fn worktree_add_new_branch(
 
 /// Bare clone a repository using libgit2.
 pub fn clone_bare(url: &str, dest: &Path) -> Result<()> {
-    let cb = make_credentials_callback();
-    let mut fo = FetchOptions::new();
-    fo.remote_callbacks(cb);
+    let fo = make_fetch_options(false);
     let mut builder = git2::build::RepoBuilder::new();
     builder.bare(true);
     builder.fetch_options(fo);
     builder
         .clone(url, dest)
         .with_context(|| format!("failed to clone '{}' into {}", url, dest.display()))?;
+    clear_progress_line();
     Ok(())
 }
 
@@ -764,5 +792,26 @@ mod tests {
         // Empty credential type (nothing allowed)
         let strategies = credential_strategies(1, CredentialType::empty());
         assert_eq!(strategies, vec![CredentialStrategy::None]);
+    }
+
+    #[test]
+    fn transfer_progress_format() {
+        let output = format_transfer_progress(63, 126, 50, 32768);
+        assert_eq!(output, "\r    63/126    objects,    50 indexed,     32 KiB");
+    }
+
+    #[test]
+    fn transfer_progress_format_zero() {
+        let output = format_transfer_progress(0, 0, 0, 0);
+        assert_eq!(output, "\r     0/0      objects,     0 indexed,      0 KiB");
+    }
+
+    #[test]
+    fn transfer_progress_format_large_values() {
+        let output = format_transfer_progress(999999, 999999, 999999, 1048576);
+        assert_eq!(
+            output,
+            "\r999999/999999 objects, 999999 indexed,   1024 KiB"
+        );
     }
 }
