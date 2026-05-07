@@ -58,9 +58,9 @@ then add worktrees. This keeps everything self-contained and easy to ignore
 from parent repos (just add the folder to `.gitignore`):
 
 ```bash
-cd << your repo >>-dev
-agwt init << your repo >>
-cd << your repo >>
+cd <your-repo>-dev
+agwt init <your-repo>
+cd <your-repo>
 agwt checkout develop
 agwt create feature/my-task --base develop
 ```
@@ -68,8 +68,8 @@ agwt create feature/my-task --base develop
 Resulting structure:
 
 ```
-<< your repo >>-dev/
-└── << your repo >>/
+<your-repo>-dev/
+└── <your-repo>/
     ├── .bare/           # bare repo (all git data)
     ├── develop/         # worktree tracking develop
     └── feature-my-task/ # worktree with new branch
@@ -82,7 +82,7 @@ in separate editor windows or feed them to AI coding agents in parallel.
 
 ```bash
 # Initialize a new bare repo from a remote URL
-agwt init << your repo >>
+agwt init <your-repo>
 
 # Create a worktree with a new branch (from default branch)
 agwt create feature/xyz
