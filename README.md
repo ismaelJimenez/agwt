@@ -48,6 +48,18 @@ own branch and file state with zero interference.
 ## Installation
 
 ```bash
+cargo install agwt
+```
+
+To update to the latest version:
+
+```bash
+cargo install agwt --force
+```
+
+Or install from a local checkout:
+
+```bash
 cargo install --path .
 ```
 
@@ -91,13 +103,19 @@ in separate editor windows or feed them to AI coding agents in parallel.
 # Initialize a new bare repo from a remote URL
 agwt init <your-repo>
 
+# Initialize with a custom directory name
+agwt init <your-repo> --name my-project
+
 # Create a worktree with a new branch (from default branch)
 agwt create feature/xyz
 
 # Create a worktree with a new branch from a specific base
 agwt create fix/bug-123 --base develop
 
-# Checkout a worktree tracking an existing remote branch
+# Create with a custom directory name
+agwt create feature/xyz --name xyz
+
+# Checkout a worktree tracking an existing remote branch (alias: co)
 agwt checkout develop
 
 # Checkout and record which branch it was based on
@@ -120,6 +138,9 @@ agwt fetch
 
 # Remove a worktree and its local branch
 agwt remove feature-xyz
+
+# Force removal even if the worktree is dirty
+agwt remove feature-xyz --force
 
 # Remove and also delete the remote branch (asks for confirmation)
 agwt remove feature-xyz --delete-remote
@@ -170,6 +191,13 @@ agwt shell-init fish | source
 # PowerShell (add to your $PROFILE)
 agwt shell-init powershell | Invoke-Expression
 ```
+
+## Global Flags
+
+- `--bare-dir` / `-C` — path to the bare repository directory (auto-discovered if omitted)
+- `--verbose` — show verbose git output (transfer details, server messages)
+
+Most commands that talk to a remote accept `--remote <name>` (default: `origin`).
 
 ## Bare Repo Discovery
 
