@@ -582,9 +582,13 @@ fn make_credentials_callback<'a>() -> RemoteCallbacks<'a> {
 }
 
 /// Create a progress bar for transfer operations.
+///
+/// The bar starts hidden so that server-side phases (counting, compressing)
+/// don't produce a confusing "100% 0/0 objects" line.  The `transfer_progress`
+/// callback reveals it once there are actual objects to track.
 fn make_transfer_progress_bar() -> Arc<ProgressBar> {
-    let pb =
-        ProgressBar::with_draw_target(Some(0), indicatif::ProgressDrawTarget::stderr_with_hz(20));
+    let pb = ProgressBar::hidden();
+    pb.set_length(0);
     pb.set_style(
         ProgressStyle::with_template(
             "       {bar:20.green/dim} {percent:>3}%  {pos}/{len} objects, {msg}",
@@ -612,6 +616,13 @@ fn make_fetch_options(prune: bool, verbose: bool) -> (FetchOptions<'static>, Arc
     let pb_clone = Arc::clone(&pb);
     cb.transfer_progress(move |stats| {
         let total = stats.total_objects() as u64;
+        if total == 0 {
+            return true;
+        }
+        // Reveal the bar the first time we learn the object count.
+        if pb_clone.length() == Some(0) {
+            pb_clone.set_draw_target(indicatif::ProgressDrawTarget::stderr_with_hz(20));
+        }
         if pb_clone.length() != Some(total) {
             pb_clone.set_length(total);
         }
@@ -859,6 +870,8 @@ mod tests {
     #[test]
     fn transfer_progress_bar_tracks_position() {
         let pb = make_transfer_progress_bar();
+        // Simulate the reveal: set draw target, then set length
+        pb.set_draw_target(indicatif::ProgressDrawTarget::hidden());
         pb.set_length(100);
         pb.set_position(50);
         pb.set_message("48 KiB".to_string());
@@ -866,5 +879,13 @@ mod tests {
         assert_eq!(pb.length(), Some(100));
         pb.finish();
         assert!(pb.is_finished());
+    }
+
+    #[test]
+    fn transfer_progress_bar_starts_hidden_with_zero_length() {
+        let pb = make_transfer_progress_bar();
+        assert_eq!(pb.length(), Some(0));
+        // Bar should be hidden initially (no draw target set to stderr)
+        assert!(pb.is_hidden());
     }
 }
