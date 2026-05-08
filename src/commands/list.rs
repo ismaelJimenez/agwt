@@ -3,12 +3,13 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::git::{list_worktrees, parent_of_bare};
-use crate::{BOLD, GREEN, RED, YELLOW};
+use crate::git::{get_default_branch, list_worktrees, parent_of_bare};
+use crate::{BOLD, CYAN, DIM, RED, YELLOW};
 
 pub fn cmd_list(bare_dir: &Path) -> Result<()> {
     let parent = parent_of_bare(bare_dir);
     let entries = list_worktrees(bare_dir, &parent)?;
+    let default_branch = get_default_branch(bare_dir).unwrap_or_default();
 
     if entries.is_empty() {
         println!("No worktrees");
@@ -43,13 +44,15 @@ pub fn cmd_list(bare_dir: &Path) -> Result<()> {
         };
 
         let base_info = match &entry.base {
-            Some(b) => format!(" (from {BOLD}{b}{BOLD:#})"),
-            None => String::new(),
+            Some(b) if b != &default_branch => {
+                format!(" {DIM}(from {DIM:#}{BOLD}{b}{BOLD:#}{DIM}){DIM:#}")
+            }
+            _ => String::new(),
         };
 
         writeln!(
             stdout,
-            "  {GREEN}{:<width$}{GREEN:#}  {branch}{base_info}{status}",
+            "  {BOLD}{:<width$}{BOLD:#}  {CYAN}{branch}{CYAN:#}{base_info}{status}",
             entry.name,
             branch = entry.branch,
             width = max_name,

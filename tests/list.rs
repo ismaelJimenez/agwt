@@ -291,3 +291,69 @@ fn list_shows_locked_indicator() {
         .assert()
         .success();
 }
+
+/// List: hides "from" when base is the default branch, shows it for non-default bases
+#[test]
+fn list_hides_from_default_base() {
+    let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
+
+    // Create a worktree from the default branch (main) — should NOT show "(from main)"
+    gwt(&bare_dir)
+        .args(["create", "test/from-default", "--base", "main"])
+        .assert()
+        .success();
+
+    let output = gwt(&bare_dir).arg("list").assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    assert!(
+        !stdout.contains("(from main)"),
+        "should hide base when it is the default branch, got: {stdout}"
+    );
+
+    // Create another worktree to use as a non-default base
+    gwt(&bare_dir)
+        .args(["create", "release/1.0"])
+        .assert()
+        .success();
+
+    // Push the branch so it can be used as a base
+    let project_dir = bare_dir.parent().unwrap();
+    let release_dir = project_dir.join("release-1.0");
+    let push = std::process::Command::new("git")
+        .args(["push", "--quiet", "-u", "origin", "release/1.0"])
+        .current_dir(&release_dir)
+        .output()
+        .unwrap();
+    assert!(
+        push.status.success(),
+        "push failed: {}",
+        String::from_utf8_lossy(&push.stderr)
+    );
+
+    // Create a worktree from the non-default base — should show "(from release/1.0)"
+    gwt(&bare_dir)
+        .args(["create", "test/from-release", "--base", "release/1.0"])
+        .assert()
+        .success();
+
+    let output = gwt(&bare_dir).arg("list").assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    assert!(
+        stdout.contains("from release/1.0"),
+        "should show base when it is not the default branch, got: {stdout}"
+    );
+
+    // cleanup
+    gwt(&bare_dir)
+        .args(["remove", "test-from-release", "--force"])
+        .assert()
+        .success();
+    gwt(&bare_dir)
+        .args(["remove", "release-1.0", "--force"])
+        .assert()
+        .success();
+    gwt(&bare_dir)
+        .args(["remove", "test-from-default", "--force"])
+        .assert()
+        .success();
+}

@@ -143,12 +143,13 @@ fn create_stores_base_in_config() {
     assert!(output.status.success(), "agwt-base config should be set");
     assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "main");
 
-    // Verify list shows (from main)
-    gwt(&bare_dir)
-        .arg("list")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("(from main)"));
+    // Verify list hides "(from main)" since main is the default branch
+    let output = gwt(&bare_dir).arg("list").assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    assert!(
+        !stdout.contains("(from main)"),
+        "should hide base when it is the default branch, got: {stdout}"
+    );
 
     gwt(&bare_dir)
         .args(["remove", "test-base-stored", "--force"])
