@@ -69,6 +69,7 @@ enum Commands {
     },
 
     /// Create a worktree tracking an existing remote branch
+    #[command(alias = "co")]
     Checkout {
         /// Remote branch name to checkout
         branch: String,

@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::Path;
 
 use anstream::eprintln;
@@ -33,6 +34,12 @@ pub fn cmd_checkout(
 
     let remote_ref = format!("{}/{}", remote, branch);
     let local_branch_exists = branch_exists(bare_dir, branch)?;
+
+    eprintln!(
+        "{GREEN}{:>12}{GREEN:#} worktree {BOLD}{name}{BOLD:#}...",
+        "Creating"
+    );
+    let _ = std::io::stderr().flush();
 
     if local_branch_exists {
         git::worktree_add(bare_dir, name, &target_dir, branch)?;

@@ -223,9 +223,9 @@ fn init_output_mentions_worktree() {
         );
 }
 
-/// Init: prints a status message before fetching remote tracking refs
+/// Init: prints a status message before creating the default worktree
 #[test]
-fn init_prints_fetching_status() {
+fn init_prints_creating_worktree_status() {
     let (_remote_tmp, remote_path) = setup_local_remote();
     let tmp = TempDir::new().unwrap();
     Command::cargo_bin("agwt")
@@ -234,5 +234,5 @@ fn init_prints_fetching_status() {
         .current_dir(tmp.path())
         .assert()
         .success()
-        .stderr(predicate::str::contains("Fetching"));
+        .stderr(predicate::str::contains("Creating"));
 }

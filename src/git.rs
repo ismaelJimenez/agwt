@@ -601,12 +601,7 @@ fn make_transfer_progress_bar() -> Arc<ProgressBar> {
 
 /// Finish the progress bar with a trailing blank line for spacing.
 fn finish_progress(pb: &ProgressBar) {
-    if pb.length() == Some(0) {
-        pb.finish_and_clear();
-    } else {
-        pb.finish();
-        eprintln!();
-    }
+    pb.finish_and_clear();
 }
 
 /// Create FetchOptions with credential callbacks, transfer progress, and optional prune.
@@ -623,12 +618,27 @@ fn make_fetch_options(prune: bool, verbose: bool) -> (FetchOptions<'static>, Arc
         if pb_clone.length() == Some(0) {
             pb_clone.set_draw_target(indicatif::ProgressDrawTarget::stderr_with_hz(20));
         }
-        if pb_clone.length() != Some(total) {
-            pb_clone.set_length(total);
+        let received = stats.received_objects() as u64;
+        if received < total {
+            // Phase 1: receiving objects
+            if pb_clone.length() != Some(total) {
+                pb_clone.set_length(total);
+            }
+            pb_clone.set_position(received);
+            let kib = stats.received_bytes() / 1024;
+            pb_clone.set_message(format!("{kib} KiB"));
+        } else {
+            // Phase 2: resolving deltas
+            let total_deltas = stats.total_deltas() as u64;
+            let indexed_deltas = stats.indexed_deltas() as u64;
+            if total_deltas > 0 {
+                if pb_clone.length() != Some(total_deltas) {
+                    pb_clone.set_length(total_deltas);
+                }
+                pb_clone.set_position(indexed_deltas);
+                pb_clone.set_message("resolving deltas".to_string());
+            }
         }
-        pb_clone.set_position(stats.received_objects() as u64);
-        let kib = stats.received_bytes() / 1024;
-        pb_clone.set_message(format!("{kib} KiB"));
         true
     });
     let pb_sideband = Arc::clone(&pb);
