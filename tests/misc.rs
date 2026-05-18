@@ -10,7 +10,7 @@ use tempfile::TempDir;
 // fetch
 // =============================================================================
 
-/// Fetch: fetches all remotes
+/// Fetch: default fetches only active branches
 #[test]
 fn fetch_works() {
     let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
@@ -21,7 +21,7 @@ fn fetch_works() {
         .stderr(predicate::str::contains("Fetched"));
 }
 
-/// Fetch: fetches multiple remotes in parallel
+/// Fetch: fetches multiple remotes
 #[test]
 fn fetch_parallel_multiple_remotes() {
     let (_remote_tmp, _upstream_tmp, _project_tmp, bare_dir) = init_fresh_with_second_remote();

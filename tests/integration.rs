@@ -1957,7 +1957,7 @@ fn doctor_behind() {
         String::from_utf8_lossy(&push.stderr)
     );
 
-    // Doctor should detect "behind" (it does fetch --all --prune internally)
+    // Doctor should detect "behind" (it does active-set fetch with prune internally)
     gwt(&bare_dir)
         .arg("doctor")
         .assert()

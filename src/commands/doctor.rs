@@ -12,9 +12,9 @@ pub fn cmd_doctor(bare_dir: &Path, verbose: bool) -> Result<()> {
     let mut issues = 0u32;
     let parent = parent_of_bare(bare_dir);
 
-    // 0. Fetch all remotes with prune to get fresh state
-    eprintln!("{GREEN}{:>12}{GREEN:#} all remotes...", "Fetching");
-    let _ = git::fetch_all_remotes(bare_dir, verbose);
+    // 0. Fetch active branches with prune to get fresh state
+    eprintln!("{GREEN}{:>12}{GREEN:#} active branches...", "Fetching");
+    let _ = git::fetch_active_remotes(bare_dir, verbose);
 
     // 1. Prune stale worktree references using libgit2
     if let Ok(repo) = git2::Repository::open_bare(bare_dir) {

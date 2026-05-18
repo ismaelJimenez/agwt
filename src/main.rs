@@ -127,7 +127,7 @@ enum Commands {
         remote: String,
     },
 
-    /// Fetch all remotes in the bare repo
+    /// Fetch active worktree branches from remotes
     Fetch,
 
     /// Print the path to a worktree (use with shell function to cd)

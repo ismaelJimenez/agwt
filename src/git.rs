@@ -1,5 +1,5 @@
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
@@ -692,68 +692,59 @@ pub fn fetch_remote(
     Ok(())
 }
 
-/// Fetch all remotes (with prune) using libgit2.
-/// When multiple remotes are configured, fetches them in parallel using threads.
-pub fn fetch_all_remotes(bare_dir: &Path, verbose: bool) -> Result<()> {
+/// Compute the set of branches that are actively in use
+/// (all branches checked out in worktrees).
+pub fn active_branches(bare_dir: &Path) -> Result<HashSet<String>> {
+    let parent = parent_of_bare(bare_dir);
+    let mut branches = HashSet::new();
+
+    let worktrees = list_worktrees_basic(bare_dir, &parent)?;
+    for wt in &worktrees {
+        branches.insert(wt.branch.clone());
+    }
+
+    Ok(branches)
+}
+
+/// Fetch only the active branches (worktree branches) from all remotes.
+/// Prunes remote-tracking refs for branches deleted on the remote.
+pub fn fetch_active_remotes(bare_dir: &Path, verbose: bool) -> Result<()> {
+    let branches = active_branches(bare_dir)?;
+    if branches.is_empty() {
+        return Ok(());
+    }
+
+    if verbose {
+        eprintln!("Fetching {} active branches:", branches.len());
+        for b in &branches {
+            eprintln!("  {b}");
+        }
+    }
+
     let repo = Repository::open_bare(bare_dir)
         .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
     let remotes = repo.remotes().context("failed to list remotes")?;
     let remote_names: Vec<String> = remotes.iter().flatten().map(String::from).collect();
     drop(repo);
 
-    if remote_names.len() <= 1 {
-        // Single remote: fetch directly without spawning a thread.
-        if let Some(name) = remote_names.first() {
-            if verbose {
-                eprintln!("Fetching {name}...");
-            }
-            let r = Repository::open_bare(bare_dir)
-                .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
-            let mut remote = r.find_remote(name)?;
-            let (mut fo, pb) = make_fetch_options(true, verbose);
-            remote
-                .fetch(&[] as &[&str], Some(&mut fo), None)
-                .with_context(|| format!("failed to fetch from '{name}'"))?;
-            finish_progress(&pb);
-        }
-        return Ok(());
+    for remote_name in &remote_names {
+        let r = Repository::open_bare(bare_dir)
+            .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
+        let mut remote = r.find_remote(remote_name)?;
+
+        let refspecs_for_remote: Vec<String> = branches
+            .iter()
+            .map(|b| format!("+refs/heads/{b}:refs/remotes/{remote_name}/{b}"))
+            .collect();
+        let refspec_strs: Vec<&str> = refspecs_for_remote.iter().map(|s| s.as_str()).collect();
+
+        let (mut fo, pb) = make_fetch_options(true, verbose);
+        remote
+            .fetch(&refspec_strs, Some(&mut fo), None)
+            .with_context(|| format!("failed to fetch from '{remote_name}'"))?;
+        finish_progress(&pb);
     }
 
-    // Multiple remotes: fetch in parallel.
-    let bare_dir_buf = bare_dir.to_path_buf();
-    let handles: Vec<_> = remote_names
-        .into_iter()
-        .map(|name| {
-            let dir = bare_dir_buf.clone();
-            thread::spawn(move || {
-                if verbose {
-                    eprintln!("Fetching {name}...");
-                }
-                let r = Repository::open_bare(&dir)
-                    .with_context(|| format!("failed to open bare repo: {}", dir.display()))?;
-                let mut remote = r.find_remote(&name)?;
-                let (mut fo, pb) = make_fetch_options(true, verbose);
-                remote
-                    .fetch(&[] as &[&str], Some(&mut fo), None)
-                    .with_context(|| format!("failed to fetch from '{name}'"))?;
-                finish_progress(&pb);
-                Ok(())
-            })
-        })
-        .collect();
-
-    let mut errors: Vec<anyhow::Error> = Vec::new();
-    for handle in handles {
-        match handle.join() {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => errors.push(e),
-            Err(_) => errors.push(anyhow::anyhow!("fetch thread panicked")),
-        }
-    }
-
-    if let Some(first) = errors.into_iter().next() {
-        return Err(first);
-    }
     Ok(())
 }
 
