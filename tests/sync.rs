@@ -1,6 +1,6 @@
 mod common;
 
-use common::{gwt, init_fresh, init_fresh_with_second_remote};
+use common::{git_cmd, gwt, init_fresh, init_fresh_with_second_remote};
 use predicates::prelude::*;
 use tempfile::TempDir;
 
@@ -16,7 +16,7 @@ fn sync_pulls_latest() {
         .success();
 
     // Push so remote exists
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "origin", "test/sync-pull"])
         .current_dir(project_dir.join("test-sync-pull"))
         .output()
@@ -76,7 +76,7 @@ fn sync_rebase_linear_history() {
     let wt_dir = project_dir.join("test-sync-rebase");
 
     // Push to set up remote tracking
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "-u", "origin", "test/sync-rebase"])
         .current_dir(&wt_dir)
         .output()
@@ -88,7 +88,7 @@ fn sync_rebase_linear_history() {
     );
 
     // Advance the remote branch with a non-conflicting change
-    let remote_url = std::process::Command::new("git")
+    let remote_url = git_cmd()
         .args(["remote", "get-url", "origin"])
         .current_dir(&bare_dir)
         .output()
@@ -98,7 +98,7 @@ fn sync_rebase_linear_history() {
         .to_string();
 
     let advance_tmp = TempDir::new().unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "clone",
             "--quiet",
@@ -112,12 +112,12 @@ fn sync_rebase_linear_history() {
         .unwrap();
     let advance_dir = advance_tmp.path().join("advance");
     std::fs::write(advance_dir.join("remote-file.txt"), "from remote\n").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "."])
         .current_dir(&advance_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -131,7 +131,7 @@ fn sync_rebase_linear_history() {
         .current_dir(&advance_dir)
         .output()
         .unwrap();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet"])
         .current_dir(&advance_dir)
         .output()
@@ -144,12 +144,12 @@ fn sync_rebase_linear_history() {
 
     // Make a non-conflicting local commit (different file)
     std::fs::write(wt_dir.join("local-file.txt"), "from local\n").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "."])
         .current_dir(&wt_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -172,7 +172,7 @@ fn sync_rebase_linear_history() {
         .stderr(predicate::str::contains("Synced"));
 
     // Verify linear history (no merge commits — every commit has exactly 1 parent)
-    let log = std::process::Command::new("git")
+    let log = git_cmd()
         .args(["log", "--oneline", "--merges"])
         .current_dir(&wt_dir)
         .output()
@@ -184,7 +184,7 @@ fn sync_rebase_linear_history() {
     );
 
     // Verify both commits are present
-    let log = std::process::Command::new("git")
+    let log = git_cmd()
         .args(["log", "--oneline"])
         .current_dir(&wt_dir)
         .output()
@@ -219,7 +219,7 @@ fn sync_rebase_conflict() {
     let wt_dir = project_dir.join("test-sync-conflict");
 
     // Push to set up remote tracking
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "-u", "origin", "test/sync-conflict"])
         .current_dir(&wt_dir)
         .output()
@@ -231,7 +231,7 @@ fn sync_rebase_conflict() {
     );
 
     // Advance the remote branch with a conflicting change
-    let remote_url = std::process::Command::new("git")
+    let remote_url = git_cmd()
         .args(["remote", "get-url", "origin"])
         .current_dir(&bare_dir)
         .output()
@@ -241,7 +241,7 @@ fn sync_rebase_conflict() {
         .to_string();
 
     let advance_tmp = TempDir::new().unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "clone",
             "--quiet",
@@ -255,12 +255,12 @@ fn sync_rebase_conflict() {
         .unwrap();
     let advance_dir = advance_tmp.path().join("advance");
     std::fs::write(advance_dir.join("conflict.txt"), "remote content\n").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "."])
         .current_dir(&advance_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -274,7 +274,7 @@ fn sync_rebase_conflict() {
         .current_dir(&advance_dir)
         .output()
         .unwrap();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet"])
         .current_dir(&advance_dir)
         .output()
@@ -287,12 +287,12 @@ fn sync_rebase_conflict() {
 
     // Make a conflicting local commit
     std::fs::write(wt_dir.join("conflict.txt"), "local content\n").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "."])
         .current_dir(&wt_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -319,7 +319,7 @@ fn sync_rebase_conflict() {
         );
 
     // Abort the rebase so we can clean up
-    std::process::Command::new("git")
+    git_cmd()
         .args(["rebase", "--abort"])
         .current_dir(&wt_dir)
         .output()
@@ -343,7 +343,7 @@ fn sync_auto_detect_cwd() {
         .success();
 
     // Push so remote exists
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "origin", "test/sync-cwd"])
         .current_dir(project_dir.join("test-sync-cwd"))
         .output()
@@ -381,7 +381,7 @@ fn sync_with_remote() {
         .success();
 
     // Push to upstream so remote tracking branch exists
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "upstream", "test/sync-up"])
         .current_dir(project_dir.join("test-sync-up"))
         .output()
@@ -415,7 +415,7 @@ fn sync_all() {
         gwt(&bare_dir).args(["create", name]).assert().success();
 
         let dir_name = name.replace('/', "-");
-        let push = std::process::Command::new("git")
+        let push = git_cmd()
             .args(["push", "--quiet", "-u", "origin", name])
             .current_dir(project_dir.join(&dir_name))
             .output()
@@ -454,7 +454,7 @@ fn sync_all_partial_failure() {
         .args(["create", "test/sync-all-ok"])
         .assert()
         .success();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "-u", "origin", "test/sync-all-ok"])
         .current_dir(project_dir.join("test-sync-all-ok"))
         .output()
@@ -513,14 +513,14 @@ fn sync_autostash_dirty_worktree() {
     let wt_dir = project_dir.join("test-autostash");
 
     // Push the branch so it has an upstream
-    std::process::Command::new("git")
+    git_cmd()
         .args(["push", "-u", "origin", "test/autostash"])
         .current_dir(&wt_dir)
         .output()
         .unwrap();
 
     // Advance the remote branch from another clone
-    let remote_url = std::process::Command::new("git")
+    let remote_url = git_cmd()
         .args(["remote", "get-url", "origin"])
         .current_dir(&bare_dir)
         .output()
@@ -530,7 +530,7 @@ fn sync_autostash_dirty_worktree() {
         .to_string();
 
     let advance_tmp = TempDir::new().unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "clone",
             "--quiet",
@@ -544,12 +544,12 @@ fn sync_autostash_dirty_worktree() {
         .unwrap();
     let advance_dir = advance_tmp.path().join("advance");
     std::fs::write(advance_dir.join("remote-change.txt"), "from remote\n").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "."])
         .current_dir(&advance_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -562,7 +562,7 @@ fn sync_autostash_dirty_worktree() {
         .current_dir(&advance_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["push"])
         .current_dir(&advance_dir)
         .output()

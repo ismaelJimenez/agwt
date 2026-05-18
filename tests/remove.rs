@@ -1,6 +1,6 @@
 mod common;
 
-use common::{gwt, init_fresh};
+use common::{git_cmd, gwt, init_fresh};
 use predicates::prelude::*;
 use std::process::Command;
 
@@ -25,7 +25,7 @@ fn remove_deletes_worktree_and_branch() {
     assert!(!project_dir.join("test-rm-basic").exists());
 
     // Verify branch is gone
-    let output = std::process::Command::new("git")
+    let output = git_cmd()
         .args(["branch", "--list", "test/rm-basic"])
         .current_dir(&bare_dir)
         .output()
@@ -89,7 +89,7 @@ fn remove_delete_remote() {
         .success();
 
     // Push so remote branch exists
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "origin", "test/rm-remote"])
         .current_dir(project_dir.join("test-rm-remote"))
         .output()
@@ -112,7 +112,7 @@ fn remove_delete_remote() {
         );
 
     // Verify remote branch is gone
-    let output = std::process::Command::new("git")
+    let output = git_cmd()
         .args(["ls-remote", "--heads", "origin", "test/rm-remote"])
         .current_dir(&bare_dir)
         .output()

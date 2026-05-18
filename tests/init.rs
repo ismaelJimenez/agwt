@@ -1,7 +1,6 @@
 mod common;
 
-use assert_cmd::Command;
-use common::{init_fresh, setup_local_remote};
+use common::{agwt_cmd, git_cmd, init_fresh, setup_local_remote};
 use predicates::prelude::*;
 use tempfile::TempDir;
 
@@ -10,8 +9,7 @@ use tempfile::TempDir;
 fn init_creates_bare_dir() {
     let (_remote_tmp, remote_path) = setup_local_remote();
     let tmp = TempDir::new().unwrap();
-    Command::cargo_bin("agwt")
-        .unwrap()
+    agwt_cmd()
         .args(["init", remote_path.to_str().unwrap(), "--name", "myproject"])
         .current_dir(tmp.path())
         .assert()
@@ -31,8 +29,7 @@ fn init_creates_bare_dir() {
 fn init_custom_name() {
     let (_remote_tmp, remote_path) = setup_local_remote();
     let tmp = TempDir::new().unwrap();
-    Command::cargo_bin("agwt")
-        .unwrap()
+    agwt_cmd()
         .args([
             "init",
             remote_path.to_str().unwrap(),
@@ -54,25 +51,25 @@ fn init_derives_name_from_url() {
     // Name the remote "agwt.git" so derivation produces "agwt"
     let remote_tmp = TempDir::new().unwrap();
     let remote_path = remote_tmp.path().join("agwt.git");
-    std::process::Command::new("git")
+    git_cmd()
         .args(["init", "--bare"])
         .arg(&remote_path)
         .output()
         .unwrap();
     let seed_tmp = TempDir::new().unwrap();
     let seed_dir = seed_tmp.path().join("seed");
-    std::process::Command::new("git")
+    git_cmd()
         .args(["clone", remote_path.to_str().unwrap(), "seed"])
         .current_dir(seed_tmp.path())
         .output()
         .unwrap();
     std::fs::write(seed_dir.join("README.md"), "# test\n").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "."])
         .current_dir(&seed_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -85,25 +82,24 @@ fn init_derives_name_from_url() {
         .current_dir(&seed_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["branch", "-M", "main"])
         .current_dir(&seed_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["push", "-u", "origin", "main"])
         .current_dir(&seed_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["symbolic-ref", "HEAD", "refs/heads/main"])
         .current_dir(&remote_path)
         .output()
         .unwrap();
 
     let tmp = TempDir::new().unwrap();
-    Command::cargo_bin("agwt")
-        .unwrap()
+    agwt_cmd()
         .args(["init", remote_path.to_str().unwrap()])
         .current_dir(tmp.path())
         .assert()
@@ -121,8 +117,7 @@ fn init_fails_if_dir_exists() {
     let tmp = TempDir::new().unwrap();
     std::fs::create_dir(tmp.path().join("myproject")).unwrap();
 
-    Command::cargo_bin("agwt")
-        .unwrap()
+    agwt_cmd()
         .args(["init", remote_path.to_str().unwrap(), "--name", "myproject"])
         .current_dir(tmp.path())
         .assert()
@@ -134,8 +129,7 @@ fn init_fails_if_dir_exists() {
 #[test]
 fn init_fails_invalid_url() {
     let tmp = TempDir::new().unwrap();
-    Command::cargo_bin("agwt")
-        .unwrap()
+    agwt_cmd()
         .args(["init", "/tmp/no-such-path-xyz/repo.git"])
         .current_dir(tmp.path())
         .assert()
@@ -148,7 +142,7 @@ fn init_configures_git_settings() {
     let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
 
     // Check fetch refspec
-    let output = std::process::Command::new("git")
+    let output = git_cmd()
         .args(["config", "--get", "remote.origin.fetch"])
         .current_dir(&bare_dir)
         .output()
@@ -160,7 +154,7 @@ fn init_configures_git_settings() {
     );
 
     // Check push.autoSetupRemote
-    let output = std::process::Command::new("git")
+    let output = git_cmd()
         .args(["config", "--get", "push.autoSetupRemote"])
         .current_dir(&bare_dir)
         .output()
@@ -193,7 +187,7 @@ fn init_default_branch_tracks_upstream() {
     let project_dir = bare_dir.parent().unwrap();
 
     let main_wt = project_dir.join("main");
-    let output = std::process::Command::new("git")
+    let output = git_cmd()
         .args(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
         .current_dir(&main_wt)
         .output()
@@ -210,8 +204,7 @@ fn init_default_branch_tracks_upstream() {
 fn init_output_mentions_worktree() {
     let (_remote_tmp, remote_path) = setup_local_remote();
     let tmp = TempDir::new().unwrap();
-    Command::cargo_bin("agwt")
-        .unwrap()
+    agwt_cmd()
         .args(["init", remote_path.to_str().unwrap(), "--name", "myproject"])
         .current_dir(tmp.path())
         .assert()
@@ -228,8 +221,7 @@ fn init_output_mentions_worktree() {
 fn init_prints_creating_worktree_status() {
     let (_remote_tmp, remote_path) = setup_local_remote();
     let tmp = TempDir::new().unwrap();
-    Command::cargo_bin("agwt")
-        .unwrap()
+    agwt_cmd()
         .args(["init", remote_path.to_str().unwrap(), "--name", "myproject"])
         .current_dir(tmp.path())
         .assert()

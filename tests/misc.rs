@@ -1,7 +1,6 @@
 mod common;
 
-use assert_cmd::Command;
-use common::{gwt, init_fresh, setup_local_remote};
+use common::{agwt_cmd, git_cmd, gwt, init_fresh, setup_local_remote};
 use predicates::prelude::*;
 use tempfile::TempDir;
 
@@ -30,8 +29,7 @@ fn init_clone_with_file_url() {
     let (_remote_tmp, remote_path) = setup_local_remote();
     let tmp = TempDir::new().unwrap();
     let url = format!("file://{}", remote_path.display());
-    Command::cargo_bin("agwt")
-        .unwrap()
+    agwt_cmd()
         .args(["init", &url, "--name", "progress-test"])
         .current_dir(tmp.path())
         .assert()
@@ -266,8 +264,7 @@ fn lock_fails_nonexistent() {
 /// Shell-init: bash output contains function and completion
 #[test]
 fn shell_init_bash() {
-    Command::cargo_bin("agwt")
-        .unwrap()
+    agwt_cmd()
         .args(["shell-init", "bash"])
         .assert()
         .success()
@@ -281,8 +278,7 @@ fn shell_init_bash() {
 /// Shell-init: zsh output contains function and completion
 #[test]
 fn shell_init_zsh() {
-    Command::cargo_bin("agwt")
-        .unwrap()
+    agwt_cmd()
         .args(["shell-init", "zsh"])
         .assert()
         .success()
@@ -296,8 +292,7 @@ fn shell_init_zsh() {
 /// Shell-init: fish output contains function and completion
 #[test]
 fn shell_init_fish() {
-    Command::cargo_bin("agwt")
-        .unwrap()
+    agwt_cmd()
         .args(["shell-init", "fish"])
         .assert()
         .success()
@@ -311,8 +306,7 @@ fn shell_init_fish() {
 /// Shell-init: powershell output contains function and completion
 #[test]
 fn shell_init_powershell() {
-    Command::cargo_bin("agwt")
-        .unwrap()
+    agwt_cmd()
         .args(["shell-init", "powershell"])
         .assert()
         .success()
@@ -326,8 +320,7 @@ fn shell_init_powershell() {
 /// Shell-init: invalid shell rejected
 #[test]
 fn shell_init_invalid_shell() {
-    Command::cargo_bin("agwt")
-        .unwrap()
+    agwt_cmd()
         .args(["shell-init", "nushell"])
         .assert()
         .failure();
@@ -340,8 +333,7 @@ fn shell_init_invalid_shell() {
 /// --bare-dir with nonexistent path fails
 #[test]
 fn bare_dir_nonexistent_fails() {
-    Command::cargo_bin("agwt")
-        .unwrap()
+    agwt_cmd()
         .args(["--bare-dir", "/tmp/no-such-bare-dir-xyz", "list"])
         .assert()
         .failure()
@@ -352,8 +344,7 @@ fn bare_dir_nonexistent_fails() {
 #[test]
 fn no_bare_dir_outside_project_fails() {
     let tmp = TempDir::new().unwrap();
-    Command::cargo_bin("agwt")
-        .unwrap()
+    agwt_cmd()
         .arg("list")
         .current_dir(tmp.path())
         .assert()
@@ -364,8 +355,7 @@ fn no_bare_dir_outside_project_fails() {
 /// --version prints version info
 #[test]
 fn version_flag() {
-    Command::cargo_bin("agwt")
-        .unwrap()
+    agwt_cmd()
         .arg("--version")
         .assert()
         .success()
@@ -407,8 +397,7 @@ fn full_workflow() {
     let project_dir = tmp.path().join("agwt");
 
     // --- init ---
-    Command::cargo_bin("agwt")
-        .unwrap()
+    agwt_cmd()
         .args(["init", remote_path.to_str().unwrap(), "--name", "agwt"])
         .current_dir(tmp.path())
         .assert()
@@ -440,7 +429,7 @@ fn full_workflow() {
         .stdout(predicate::str::contains("test-integration"));
 
     // --- push + sync ---
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "origin", "test/integration"])
         .current_dir(project_dir.join("test-integration"))
         .output()

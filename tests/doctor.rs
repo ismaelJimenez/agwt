@@ -1,6 +1,6 @@
 mod common;
 
-use common::{gwt, init_fresh};
+use common::{git_cmd, gwt, init_fresh};
 use predicates::prelude::*;
 use tempfile::TempDir;
 
@@ -27,7 +27,7 @@ fn doctor_no_upstream() {
         .success();
 
     // Unset the auto-configured upstream so doctor can detect it
-    std::process::Command::new("git")
+    git_cmd()
         .args(["branch", "--unset-upstream"])
         .current_dir(project_dir.join("test-doc-noup"))
         .output()
@@ -55,7 +55,7 @@ fn doctor_dirty() {
         .success();
 
     // Push so it has an upstream (otherwise "no upstream" fires first)
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "-u", "origin", "test/doc-dirty"])
         .current_dir(project_dir.join("test-doc-dirty"))
         .output()
@@ -95,7 +95,7 @@ fn doctor_ahead() {
     let wt_dir = project_dir.join("test-doc-ahead");
 
     // Push to set up upstream
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "-u", "origin", "test/doc-ahead"])
         .current_dir(&wt_dir)
         .output()
@@ -108,12 +108,12 @@ fn doctor_ahead() {
 
     // Make a local commit (ahead)
     std::fs::write(wt_dir.join("ahead.txt"), "ahead").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "ahead.txt"])
         .current_dir(&wt_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -154,7 +154,7 @@ fn doctor_gone_branch() {
     let wt_dir = project_dir.join("test-doc-gone");
 
     // Push to set upstream
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "-u", "origin", "test/doc-gone"])
         .current_dir(&wt_dir)
         .output()
@@ -166,7 +166,7 @@ fn doctor_gone_branch() {
     );
 
     // Delete the remote branch (simulating someone else deleting it)
-    std::process::Command::new("git")
+    git_cmd()
         .args(["push", "origin", "--delete", "test/doc-gone"])
         .current_dir(&bare_dir)
         .output()
@@ -199,7 +199,7 @@ fn doctor_behind() {
     let wt_dir = project_dir.join("test-doc-behind");
 
     // Push to set up upstream
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "-u", "origin", "test/doc-behind"])
         .current_dir(&wt_dir)
         .output()
@@ -212,7 +212,7 @@ fn doctor_behind() {
 
     // Advance the remote branch by pushing a commit from a temporary clone
     let advance_tmp = TempDir::new().unwrap();
-    let remote_url = std::process::Command::new("git")
+    let remote_url = git_cmd()
         .args(["remote", "get-url", "origin"])
         .current_dir(&bare_dir)
         .output()
@@ -221,7 +221,7 @@ fn doctor_behind() {
         .trim()
         .to_string();
 
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "clone",
             "--quiet",
@@ -235,12 +235,12 @@ fn doctor_behind() {
         .unwrap();
     let advance_dir = advance_tmp.path().join("advance");
     std::fs::write(advance_dir.join("new.txt"), "new").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "."])
         .current_dir(&advance_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -254,7 +254,7 @@ fn doctor_behind() {
         .current_dir(&advance_dir)
         .output()
         .unwrap();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet"])
         .current_dir(&advance_dir)
         .output()

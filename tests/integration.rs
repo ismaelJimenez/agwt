@@ -10,9 +10,27 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
+/// Helper: build an `agwt` command with test-safe git configuration.
+fn agwt_cmd() -> Command {
+    let mut cmd = Command::cargo_bin("agwt").unwrap();
+    cmd.env("GIT_CONFIG_COUNT", "1")
+        .env("GIT_CONFIG_KEY_0", "safe.bareRepository")
+        .env("GIT_CONFIG_VALUE_0", "all");
+    cmd
+}
+
+/// Helper: build a `git` command with test-safe configuration applied.
+fn git_cmd() -> std::process::Command {
+    let mut cmd = std::process::Command::new("git");
+    cmd.env("GIT_CONFIG_COUNT", "1")
+        .env("GIT_CONFIG_KEY_0", "safe.bareRepository")
+        .env("GIT_CONFIG_VALUE_0", "all");
+    cmd
+}
+
 /// Helper: build an `agwt` command pointing at a specific bare dir.
 fn gwt(bare_dir: &std::path::Path) -> Command {
-    let mut cmd = Command::cargo_bin("agwt").unwrap();
+    let mut cmd = agwt_cmd();
     cmd.arg("--bare-dir").arg(bare_dir);
     cmd
 }
@@ -22,7 +40,7 @@ fn gwt(bare_dir: &std::path::Path) -> Command {
 fn setup_local_remote() -> (TempDir, std::path::PathBuf) {
     let remote_tmp = TempDir::new().unwrap();
     let remote_path = remote_tmp.path().join("remote.git");
-    std::process::Command::new("git")
+    git_cmd()
         .args(["init", "--bare"])
         .arg(&remote_path)
         .output()
@@ -31,18 +49,18 @@ fn setup_local_remote() -> (TempDir, std::path::PathBuf) {
     // Seed it with a commit on main via a temporary working copy
     let seed_tmp = TempDir::new().unwrap();
     let seed_dir = seed_tmp.path().join("seed");
-    std::process::Command::new("git")
+    git_cmd()
         .args(["clone", remote_path.to_str().unwrap(), "seed"])
         .current_dir(seed_tmp.path())
         .output()
         .unwrap();
     std::fs::write(seed_dir.join("README.md"), "# test\n").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "."])
         .current_dir(&seed_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -55,18 +73,18 @@ fn setup_local_remote() -> (TempDir, std::path::PathBuf) {
         .current_dir(&seed_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["branch", "-M", "main"])
         .current_dir(&seed_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["push", "-u", "origin", "main"])
         .current_dir(&seed_dir)
         .output()
         .unwrap();
     // Set HEAD on the bare remote to main
-    std::process::Command::new("git")
+    git_cmd()
         .args(["symbolic-ref", "HEAD", "refs/heads/main"])
         .current_dir(&remote_path)
         .output()
@@ -82,8 +100,7 @@ fn init_fresh() -> (TempDir, TempDir, std::path::PathBuf) {
     let (remote_tmp, remote_path) = setup_local_remote();
 
     let project_tmp = TempDir::new().unwrap();
-    Command::cargo_bin("agwt")
-        .unwrap()
+    agwt_cmd()
         .args(["init", remote_path.to_str().unwrap(), "--name", "agwt"])
         .current_dir(project_tmp.path())
         .assert()
@@ -101,7 +118,7 @@ fn init_fresh_with_second_remote() -> (TempDir, TempDir, TempDir, std::path::Pat
     // Create a second bare repo as "upstream"
     let upstream_tmp = TempDir::new().unwrap();
     let upstream_path = upstream_tmp.path().join("upstream.git");
-    std::process::Command::new("git")
+    git_cmd()
         .args(["init", "--bare"])
         .arg(&upstream_path)
         .output()
@@ -109,18 +126,18 @@ fn init_fresh_with_second_remote() -> (TempDir, TempDir, TempDir, std::path::Pat
     // Seed it
     let seed_tmp = TempDir::new().unwrap();
     let seed_dir = seed_tmp.path().join("seed");
-    std::process::Command::new("git")
+    git_cmd()
         .args(["clone", upstream_path.to_str().unwrap(), "seed"])
         .current_dir(seed_tmp.path())
         .output()
         .unwrap();
     std::fs::write(seed_dir.join("README.md"), "# upstream\n").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "."])
         .current_dir(&seed_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -133,29 +150,29 @@ fn init_fresh_with_second_remote() -> (TempDir, TempDir, TempDir, std::path::Pat
         .current_dir(&seed_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["branch", "-M", "main"])
         .current_dir(&seed_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["push", "-u", "origin", "main"])
         .current_dir(&seed_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["symbolic-ref", "HEAD", "refs/heads/main"])
         .current_dir(&upstream_path)
         .output()
         .unwrap();
 
     // Add it as a remote in the bare repo
-    std::process::Command::new("git")
+    git_cmd()
         .args(["remote", "add", "upstream", upstream_path.to_str().unwrap()])
         .current_dir(&bare_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["fetch", "--quiet", "upstream"])
         .current_dir(&bare_dir)
         .output()
@@ -217,25 +234,25 @@ fn init_derives_name_from_url() {
     // Name the remote "agwt.git" so derivation produces "agwt"
     let remote_tmp = TempDir::new().unwrap();
     let remote_path = remote_tmp.path().join("agwt.git");
-    std::process::Command::new("git")
+    git_cmd()
         .args(["init", "--bare"])
         .arg(&remote_path)
         .output()
         .unwrap();
     let seed_tmp = TempDir::new().unwrap();
     let seed_dir = seed_tmp.path().join("seed");
-    std::process::Command::new("git")
+    git_cmd()
         .args(["clone", remote_path.to_str().unwrap(), "seed"])
         .current_dir(seed_tmp.path())
         .output()
         .unwrap();
     std::fs::write(seed_dir.join("README.md"), "# test\n").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "."])
         .current_dir(&seed_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -248,17 +265,17 @@ fn init_derives_name_from_url() {
         .current_dir(&seed_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["branch", "-M", "main"])
         .current_dir(&seed_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["push", "-u", "origin", "main"])
         .current_dir(&seed_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["symbolic-ref", "HEAD", "refs/heads/main"])
         .current_dir(&remote_path)
         .output()
@@ -410,7 +427,7 @@ fn list_shows_ahead_indicator() {
     let wt_dir = project_dir.join("test-list-ahead");
 
     // Push to set up upstream tracking
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "-u", "origin", "test/list-ahead"])
         .current_dir(&wt_dir)
         .output()
@@ -423,12 +440,12 @@ fn list_shows_ahead_indicator() {
 
     // Make a local commit (ahead of remote)
     std::fs::write(wt_dir.join("ahead.txt"), "ahead").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "ahead.txt"])
         .current_dir(&wt_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -469,7 +486,7 @@ fn list_shows_behind_indicator() {
     let wt_dir = project_dir.join("test-list-behind");
 
     // Push to set up upstream tracking
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "-u", "origin", "test/list-behind"])
         .current_dir(&wt_dir)
         .output()
@@ -481,7 +498,7 @@ fn list_shows_behind_indicator() {
     );
 
     // Advance the remote branch from a separate clone
-    let remote_url = std::process::Command::new("git")
+    let remote_url = git_cmd()
         .args(["remote", "get-url", "origin"])
         .current_dir(&bare_dir)
         .output()
@@ -491,7 +508,7 @@ fn list_shows_behind_indicator() {
         .to_string();
 
     let advance_tmp = TempDir::new().unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "clone",
             "--quiet",
@@ -505,12 +522,12 @@ fn list_shows_behind_indicator() {
         .unwrap();
     let advance_dir = advance_tmp.path().join("advance");
     std::fs::write(advance_dir.join("remote.txt"), "remote").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "."])
         .current_dir(&advance_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -524,7 +541,7 @@ fn list_shows_behind_indicator() {
         .current_dir(&advance_dir)
         .output()
         .unwrap();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet"])
         .current_dir(&advance_dir)
         .output()
@@ -536,7 +553,7 @@ fn list_shows_behind_indicator() {
     );
 
     // Fetch so local knows about the remote advance
-    std::process::Command::new("git")
+    git_cmd()
         .args(["fetch", "--quiet", "origin"])
         .current_dir(&wt_dir)
         .output()
@@ -567,7 +584,7 @@ fn list_shows_locked_indicator() {
 
     // Lock the worktree
     let wt_dir = project_dir.join("test-list-locked");
-    let lock = std::process::Command::new("git")
+    let lock = git_cmd()
         .args(["worktree", "lock", wt_dir.to_str().unwrap()])
         .current_dir(&bare_dir)
         .output()
@@ -585,7 +602,7 @@ fn list_shows_locked_indicator() {
         .stdout(predicate::str::contains("locked"));
 
     // Unlock before removal
-    std::process::Command::new("git")
+    git_cmd()
         .args(["worktree", "unlock", wt_dir.to_str().unwrap()])
         .current_dir(&bare_dir)
         .output()
@@ -720,7 +737,7 @@ fn checkout_existing_branch() {
         .args(["create", "test/checkout-target"])
         .assert()
         .success();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "origin", "test/checkout-target"])
         .current_dir(project_dir.join("test-checkout-target"))
         .output()
@@ -769,7 +786,7 @@ fn checkout_name_override() {
         .args(["create", "test/co-name"])
         .assert()
         .success();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "origin", "test/co-name"])
         .current_dir(project_dir.join("test-co-name"))
         .output()
@@ -821,7 +838,7 @@ fn checkout_fails_if_dir_exists() {
         .args(["create", "test/co-exists"])
         .assert()
         .success();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "origin", "test/co-exists"])
         .current_dir(project_dir.join("test-co-exists"))
         .output()
@@ -871,7 +888,7 @@ fn remove_deletes_worktree_and_branch() {
     assert!(!project_dir.join("test-rm-basic").exists());
 
     // Verify branch is gone
-    let output = std::process::Command::new("git")
+    let output = git_cmd()
         .args(["branch", "--list", "test/rm-basic"])
         .current_dir(&bare_dir)
         .output()
@@ -939,7 +956,7 @@ fn sync_pulls_latest() {
         .success();
 
     // Push so remote exists
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "origin", "test/sync-pull"])
         .current_dir(project_dir.join("test-sync-pull"))
         .output()
@@ -999,7 +1016,7 @@ fn sync_rebase_linear_history() {
     let wt_dir = project_dir.join("test-sync-rebase");
 
     // Push to set up remote tracking
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "-u", "origin", "test/sync-rebase"])
         .current_dir(&wt_dir)
         .output()
@@ -1011,7 +1028,7 @@ fn sync_rebase_linear_history() {
     );
 
     // Advance the remote branch with a non-conflicting change
-    let remote_url = std::process::Command::new("git")
+    let remote_url = git_cmd()
         .args(["remote", "get-url", "origin"])
         .current_dir(&bare_dir)
         .output()
@@ -1021,7 +1038,7 @@ fn sync_rebase_linear_history() {
         .to_string();
 
     let advance_tmp = TempDir::new().unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "clone",
             "--quiet",
@@ -1035,12 +1052,12 @@ fn sync_rebase_linear_history() {
         .unwrap();
     let advance_dir = advance_tmp.path().join("advance");
     std::fs::write(advance_dir.join("remote-file.txt"), "from remote\n").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "."])
         .current_dir(&advance_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -1054,7 +1071,7 @@ fn sync_rebase_linear_history() {
         .current_dir(&advance_dir)
         .output()
         .unwrap();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet"])
         .current_dir(&advance_dir)
         .output()
@@ -1067,12 +1084,12 @@ fn sync_rebase_linear_history() {
 
     // Make a non-conflicting local commit (different file)
     std::fs::write(wt_dir.join("local-file.txt"), "from local\n").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "."])
         .current_dir(&wt_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -1095,7 +1112,7 @@ fn sync_rebase_linear_history() {
         .stderr(predicate::str::contains("Synced"));
 
     // Verify linear history (no merge commits — every commit has exactly 1 parent)
-    let log = std::process::Command::new("git")
+    let log = git_cmd()
         .args(["log", "--oneline", "--merges"])
         .current_dir(&wt_dir)
         .output()
@@ -1107,7 +1124,7 @@ fn sync_rebase_linear_history() {
     );
 
     // Verify both commits are present
-    let log = std::process::Command::new("git")
+    let log = git_cmd()
         .args(["log", "--oneline"])
         .current_dir(&wt_dir)
         .output()
@@ -1142,7 +1159,7 @@ fn sync_rebase_conflict() {
     let wt_dir = project_dir.join("test-sync-conflict");
 
     // Push to set up remote tracking
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "-u", "origin", "test/sync-conflict"])
         .current_dir(&wt_dir)
         .output()
@@ -1154,7 +1171,7 @@ fn sync_rebase_conflict() {
     );
 
     // Advance the remote branch with a conflicting change
-    let remote_url = std::process::Command::new("git")
+    let remote_url = git_cmd()
         .args(["remote", "get-url", "origin"])
         .current_dir(&bare_dir)
         .output()
@@ -1164,7 +1181,7 @@ fn sync_rebase_conflict() {
         .to_string();
 
     let advance_tmp = TempDir::new().unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "clone",
             "--quiet",
@@ -1178,12 +1195,12 @@ fn sync_rebase_conflict() {
         .unwrap();
     let advance_dir = advance_tmp.path().join("advance");
     std::fs::write(advance_dir.join("conflict.txt"), "remote content\n").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "."])
         .current_dir(&advance_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -1197,7 +1214,7 @@ fn sync_rebase_conflict() {
         .current_dir(&advance_dir)
         .output()
         .unwrap();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet"])
         .current_dir(&advance_dir)
         .output()
@@ -1210,12 +1227,12 @@ fn sync_rebase_conflict() {
 
     // Make a conflicting local commit
     std::fs::write(wt_dir.join("conflict.txt"), "local content\n").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "."])
         .current_dir(&wt_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -1242,7 +1259,7 @@ fn sync_rebase_conflict() {
         );
 
     // Abort the rebase so we can clean up
-    std::process::Command::new("git")
+    git_cmd()
         .args(["rebase", "--abort"])
         .current_dir(&wt_dir)
         .output()
@@ -1266,7 +1283,7 @@ fn sync_auto_detect_cwd() {
         .success();
 
     // Push so remote exists
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "origin", "test/sync-cwd"])
         .current_dir(project_dir.join("test-sync-cwd"))
         .output()
@@ -1372,7 +1389,7 @@ fn doctor_no_upstream() {
         .success();
 
     // Unset the auto-configured upstream so doctor can detect it
-    std::process::Command::new("git")
+    git_cmd()
         .args(["branch", "--unset-upstream"])
         .current_dir(project_dir.join("test-doc-noup"))
         .output()
@@ -1400,7 +1417,7 @@ fn doctor_dirty() {
         .success();
 
     // Push so it has an upstream (otherwise "no upstream" fires first)
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "-u", "origin", "test/doc-dirty"])
         .current_dir(project_dir.join("test-doc-dirty"))
         .output()
@@ -1440,7 +1457,7 @@ fn doctor_ahead() {
     let wt_dir = project_dir.join("test-doc-ahead");
 
     // Push to set up upstream
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "-u", "origin", "test/doc-ahead"])
         .current_dir(&wt_dir)
         .output()
@@ -1453,12 +1470,12 @@ fn doctor_ahead() {
 
     // Make a local commit (ahead)
     std::fs::write(wt_dir.join("ahead.txt"), "ahead").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "ahead.txt"])
         .current_dir(&wt_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -1499,7 +1516,7 @@ fn doctor_gone_branch() {
     let wt_dir = project_dir.join("test-doc-gone");
 
     // Push to set upstream
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "-u", "origin", "test/doc-gone"])
         .current_dir(&wt_dir)
         .output()
@@ -1511,7 +1528,7 @@ fn doctor_gone_branch() {
     );
 
     // Delete the remote branch (simulating someone else deleting it)
-    std::process::Command::new("git")
+    git_cmd()
         .args(["push", "origin", "--delete", "test/doc-gone"])
         .current_dir(&bare_dir)
         .output()
@@ -1678,7 +1695,7 @@ fn full_workflow() {
         .stdout(predicate::str::contains("test-integration"));
 
     // --- push + sync ---
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "origin", "test/integration"])
         .current_dir(project_dir.join("test-integration"))
         .output()
@@ -1747,7 +1764,7 @@ fn checkout_with_remote() {
         .args(["create", "test/co-upstream", "--remote", "upstream"])
         .assert()
         .success();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "upstream", "test/co-upstream"])
         .current_dir(project_dir.join("test-co-upstream"))
         .output()
@@ -1789,7 +1806,7 @@ fn sync_with_remote() {
         .success();
 
     // Push to upstream so remote tracking branch exists
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "upstream", "test/sync-up"])
         .current_dir(project_dir.join("test-sync-up"))
         .output()
@@ -1824,7 +1841,7 @@ fn remove_delete_remote() {
         .success();
 
     // Push so remote branch exists
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "origin", "test/rm-remote"])
         .current_dir(project_dir.join("test-rm-remote"))
         .output()
@@ -1847,7 +1864,7 @@ fn remove_delete_remote() {
         );
 
     // Verify remote branch is gone
-    let output = std::process::Command::new("git")
+    let output = git_cmd()
         .args(["ls-remote", "--heads", "origin", "test/rm-remote"])
         .current_dir(&bare_dir)
         .output()
@@ -1873,7 +1890,7 @@ fn doctor_behind() {
     let wt_dir = project_dir.join("test-doc-behind");
 
     // Push to set up upstream
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "-u", "origin", "test/doc-behind"])
         .current_dir(&wt_dir)
         .output()
@@ -1887,7 +1904,7 @@ fn doctor_behind() {
     // Advance the remote branch by pushing a commit from a temporary clone
     let advance_tmp = TempDir::new().unwrap();
     // Get the remote URL from the bare repo
-    let remote_url = std::process::Command::new("git")
+    let remote_url = git_cmd()
         .args(["remote", "get-url", "origin"])
         .current_dir(&bare_dir)
         .output()
@@ -1896,7 +1913,7 @@ fn doctor_behind() {
         .trim()
         .to_string();
 
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "clone",
             "--quiet",
@@ -1910,12 +1927,12 @@ fn doctor_behind() {
         .unwrap();
     let advance_dir = advance_tmp.path().join("advance");
     std::fs::write(advance_dir.join("new.txt"), "new").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "."])
         .current_dir(&advance_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -1929,7 +1946,7 @@ fn doctor_behind() {
         .current_dir(&advance_dir)
         .output()
         .unwrap();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet"])
         .current_dir(&advance_dir)
         .output()

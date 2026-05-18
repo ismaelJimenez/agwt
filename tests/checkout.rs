@@ -1,6 +1,6 @@
 mod common;
 
-use common::{gwt, init_fresh, init_fresh_with_second_remote};
+use common::{git_cmd, gwt, init_fresh, init_fresh_with_second_remote};
 use predicates::prelude::*;
 
 /// Checkout: tracks existing remote branch
@@ -14,7 +14,7 @@ fn checkout_existing_branch() {
         .args(["create", "test/checkout-target"])
         .assert()
         .success();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "origin", "test/checkout-target"])
         .current_dir(project_dir.join("test-checkout-target"))
         .output()
@@ -63,7 +63,7 @@ fn checkout_name_override() {
         .args(["create", "test/co-name"])
         .assert()
         .success();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "origin", "test/co-name"])
         .current_dir(project_dir.join("test-co-name"))
         .output()
@@ -115,7 +115,7 @@ fn checkout_fails_if_dir_exists() {
         .args(["create", "test/co-exists"])
         .assert()
         .success();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "origin", "test/co-exists"])
         .current_dir(project_dir.join("test-co-exists"))
         .output()
@@ -151,7 +151,7 @@ fn checkout_existing_local_branch() {
         .args(["create", "test/local-exists"])
         .assert()
         .success();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "origin", "test/local-exists"])
         .current_dir(project_dir.join("test-local-exists"))
         .output()
@@ -171,7 +171,7 @@ fn checkout_existing_local_branch() {
 
     // Re-create the local branch ref pointing at the remote ref (simulating a local branch
     // that already exists, e.g. after a bare clone that maps remote refs to local branches)
-    let create_branch = std::process::Command::new("git")
+    let create_branch = git_cmd()
         .args(["branch", "test/local-exists", "origin/test/local-exists"])
         .current_dir(&bare_dir)
         .output()
@@ -183,7 +183,7 @@ fn checkout_existing_local_branch() {
     );
 
     // Verify the local branch exists
-    let show_ref = std::process::Command::new("git")
+    let show_ref = git_cmd()
         .args(["show-ref", "--verify", "refs/heads/test/local-exists"])
         .current_dir(&bare_dir)
         .output()
@@ -218,7 +218,7 @@ fn checkout_existing_local_branch_sets_upstream() {
         .args(["create", "test/upstream-fix"])
         .assert()
         .success();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "origin", "test/upstream-fix"])
         .current_dir(project_dir.join("test-upstream-fix"))
         .output()
@@ -236,7 +236,7 @@ fn checkout_existing_local_branch_sets_upstream() {
         .success();
 
     // Re-create the local branch without tracking (simulating leftover local branch)
-    let create_branch = std::process::Command::new("git")
+    let create_branch = git_cmd()
         .args(["branch", "test/upstream-fix", "origin/test/upstream-fix"])
         .current_dir(&bare_dir)
         .output()
@@ -248,7 +248,7 @@ fn checkout_existing_local_branch_sets_upstream() {
     );
 
     // Explicitly unset any upstream tracking to simulate the bug scenario
-    let _ = std::process::Command::new("git")
+    let _ = git_cmd()
         .args(["branch", "--unset-upstream", "test/upstream-fix"])
         .current_dir(&bare_dir)
         .output();
@@ -261,7 +261,7 @@ fn checkout_existing_local_branch_sets_upstream() {
         .stderr(predicate::str::contains("Created").and(predicate::str::contains("tracking")));
 
     // Verify upstream is configured
-    let upstream = std::process::Command::new("git")
+    let upstream = git_cmd()
         .args(["config", "--get", "branch.test/upstream-fix.remote"])
         .current_dir(&bare_dir)
         .output()
@@ -270,7 +270,7 @@ fn checkout_existing_local_branch_sets_upstream() {
     let remote_val = String::from_utf8_lossy(&upstream.stdout);
     assert_eq!(remote_val.trim(), "origin");
 
-    let merge = std::process::Command::new("git")
+    let merge = git_cmd()
         .args(["config", "--get", "branch.test/upstream-fix.merge"])
         .current_dir(&bare_dir)
         .output()
@@ -297,7 +297,7 @@ fn checkout_with_remote() {
         .args(["create", "test/co-upstream", "--remote", "upstream"])
         .assert()
         .success();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "upstream", "test/co-upstream"])
         .current_dir(project_dir.join("test-co-upstream"))
         .output()
@@ -338,7 +338,7 @@ fn checkout_with_base_stores_config() {
         .args(["create", "test/co-base", "--base", "main"])
         .assert()
         .success();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "origin", "test/co-base"])
         .current_dir(project_dir.join("test-co-base"))
         .output()
@@ -362,7 +362,7 @@ fn checkout_with_base_stores_config() {
         .success();
 
     // Verify agwt-base is stored in git config
-    let output = std::process::Command::new("git")
+    let output = git_cmd()
         .args(["config", "--get", "branch.test/co-base.agwt-base"])
         .current_dir(&bare_dir)
         .output()
@@ -395,7 +395,7 @@ fn checkout_without_base_has_no_config() {
         .args(["create", "test/co-nobase"])
         .assert()
         .success();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "origin", "test/co-nobase"])
         .current_dir(project_dir.join("test-co-nobase"))
         .output()
@@ -419,7 +419,7 @@ fn checkout_without_base_has_no_config() {
         .success();
 
     // Verify agwt-base is NOT stored
-    let output = std::process::Command::new("git")
+    let output = git_cmd()
         .args(["config", "--get", "branch.test/co-nobase.agwt-base"])
         .current_dir(&bare_dir)
         .output()

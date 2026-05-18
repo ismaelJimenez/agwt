@@ -1,6 +1,6 @@
 mod common;
 
-use common::{gwt, init_fresh};
+use common::{git_cmd, gwt, init_fresh};
 use predicates::prelude::*;
 use tempfile::TempDir;
 
@@ -105,7 +105,7 @@ fn list_shows_ahead_indicator() {
     let wt_dir = project_dir.join("test-list-ahead");
 
     // Push to set up upstream tracking
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "-u", "origin", "test/list-ahead"])
         .current_dir(&wt_dir)
         .output()
@@ -118,12 +118,12 @@ fn list_shows_ahead_indicator() {
 
     // Make a local commit (ahead of remote)
     std::fs::write(wt_dir.join("ahead.txt"), "ahead").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "ahead.txt"])
         .current_dir(&wt_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -164,7 +164,7 @@ fn list_shows_behind_indicator() {
     let wt_dir = project_dir.join("test-list-behind");
 
     // Push to set up upstream tracking
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "-u", "origin", "test/list-behind"])
         .current_dir(&wt_dir)
         .output()
@@ -176,7 +176,7 @@ fn list_shows_behind_indicator() {
     );
 
     // Advance the remote branch from a separate clone
-    let remote_url = std::process::Command::new("git")
+    let remote_url = git_cmd()
         .args(["remote", "get-url", "origin"])
         .current_dir(&bare_dir)
         .output()
@@ -186,7 +186,7 @@ fn list_shows_behind_indicator() {
         .to_string();
 
     let advance_tmp = TempDir::new().unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "clone",
             "--quiet",
@@ -200,12 +200,12 @@ fn list_shows_behind_indicator() {
         .unwrap();
     let advance_dir = advance_tmp.path().join("advance");
     std::fs::write(advance_dir.join("remote.txt"), "remote").unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args(["add", "."])
         .current_dir(&advance_dir)
         .output()
         .unwrap();
-    std::process::Command::new("git")
+    git_cmd()
         .args([
             "-c",
             "user.email=test@test.com",
@@ -219,7 +219,7 @@ fn list_shows_behind_indicator() {
         .current_dir(&advance_dir)
         .output()
         .unwrap();
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet"])
         .current_dir(&advance_dir)
         .output()
@@ -231,7 +231,7 @@ fn list_shows_behind_indicator() {
     );
 
     // Fetch so local knows about the remote advance
-    std::process::Command::new("git")
+    git_cmd()
         .args(["fetch", "--quiet", "origin"])
         .current_dir(&wt_dir)
         .output()
@@ -262,7 +262,7 @@ fn list_shows_locked_indicator() {
 
     // Lock the worktree
     let wt_dir = project_dir.join("test-list-locked");
-    let lock = std::process::Command::new("git")
+    let lock = git_cmd()
         .args(["worktree", "lock", wt_dir.to_str().unwrap()])
         .current_dir(&bare_dir)
         .output()
@@ -280,7 +280,7 @@ fn list_shows_locked_indicator() {
         .stdout(predicate::str::contains("locked"));
 
     // Unlock before removal
-    std::process::Command::new("git")
+    git_cmd()
         .args(["worktree", "unlock", wt_dir.to_str().unwrap()])
         .current_dir(&bare_dir)
         .output()
@@ -319,7 +319,7 @@ fn list_hides_from_default_base() {
     // Push the branch so it can be used as a base
     let project_dir = bare_dir.parent().unwrap();
     let release_dir = project_dir.join("release-1.0");
-    let push = std::process::Command::new("git")
+    let push = git_cmd()
         .args(["push", "--quiet", "-u", "origin", "release/1.0"])
         .current_dir(&release_dir)
         .output()

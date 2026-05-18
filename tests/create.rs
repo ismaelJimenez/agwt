@@ -1,6 +1,6 @@
 mod common;
 
-use common::{gwt, init_fresh, init_fresh_with_second_remote};
+use common::{git_cmd, gwt, init_fresh, init_fresh_with_second_remote};
 use predicates::prelude::*;
 
 /// Create: branch from default base
@@ -135,7 +135,7 @@ fn create_stores_base_in_config() {
         .success();
 
     // Verify agwt-base is stored in git config
-    let output = std::process::Command::new("git")
+    let output = git_cmd()
         .args(["config", "--get", "branch.test/base-stored.agwt-base"])
         .current_dir(&bare_dir)
         .output()
@@ -168,7 +168,7 @@ fn create_stores_default_base_in_config() {
         .success();
 
     // Verify agwt-base is stored with the default branch name
-    let output = std::process::Command::new("git")
+    let output = git_cmd()
         .args(["config", "--get", "branch.test/implicit-base.agwt-base"])
         .current_dir(&bare_dir)
         .output()
