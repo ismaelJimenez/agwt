@@ -1,6 +1,8 @@
 mod common;
 
-use common::{agwt_cmd, git_cmd, gwt, init_fresh, setup_local_remote};
+use common::{
+    agwt_cmd, git_cmd, gwt, init_fresh, init_fresh_with_second_remote, setup_local_remote,
+};
 use predicates::prelude::*;
 use tempfile::TempDir;
 
@@ -12,6 +14,17 @@ use tempfile::TempDir;
 #[test]
 fn fetch_works() {
     let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
+    gwt(&bare_dir)
+        .arg("fetch")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Fetched"));
+}
+
+/// Fetch: fetches multiple remotes in parallel
+#[test]
+fn fetch_parallel_multiple_remotes() {
+    let (_remote_tmp, _upstream_tmp, _project_tmp, bare_dir) = init_fresh_with_second_remote();
     gwt(&bare_dir)
         .arg("fetch")
         .assert()

@@ -693,20 +693,66 @@ pub fn fetch_remote(
 }
 
 /// Fetch all remotes (with prune) using libgit2.
+/// When multiple remotes are configured, fetches them in parallel using threads.
 pub fn fetch_all_remotes(bare_dir: &Path, verbose: bool) -> Result<()> {
     let repo = Repository::open_bare(bare_dir)
         .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
     let remotes = repo.remotes().context("failed to list remotes")?;
-    for remote_name in remotes.iter().flatten() {
-        if verbose {
-            eprintln!("Fetching {remote_name}...");
+    let remote_names: Vec<String> = remotes.iter().flatten().map(String::from).collect();
+    drop(repo);
+
+    if remote_names.len() <= 1 {
+        // Single remote: fetch directly without spawning a thread.
+        if let Some(name) = remote_names.first() {
+            if verbose {
+                eprintln!("Fetching {name}...");
+            }
+            let r = Repository::open_bare(bare_dir)
+                .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
+            let mut remote = r.find_remote(name)?;
+            let (mut fo, pb) = make_fetch_options(true, verbose);
+            remote
+                .fetch(&[] as &[&str], Some(&mut fo), None)
+                .with_context(|| format!("failed to fetch from '{name}'"))?;
+            finish_progress(&pb);
         }
-        let mut remote = repo.find_remote(remote_name)?;
-        let (mut fo, pb) = make_fetch_options(true, verbose);
-        remote
-            .fetch(&[] as &[&str], Some(&mut fo), None)
-            .with_context(|| format!("failed to fetch from '{remote_name}'"))?;
-        finish_progress(&pb);
+        return Ok(());
+    }
+
+    // Multiple remotes: fetch in parallel.
+    let bare_dir_buf = bare_dir.to_path_buf();
+    let handles: Vec<_> = remote_names
+        .into_iter()
+        .map(|name| {
+            let dir = bare_dir_buf.clone();
+            thread::spawn(move || {
+                if verbose {
+                    eprintln!("Fetching {name}...");
+                }
+                let r = Repository::open_bare(&dir)
+                    .with_context(|| format!("failed to open bare repo: {}", dir.display()))?;
+                let mut remote = r.find_remote(&name)?;
+                let (mut fo, pb) = make_fetch_options(true, verbose);
+                remote
+                    .fetch(&[] as &[&str], Some(&mut fo), None)
+                    .with_context(|| format!("failed to fetch from '{name}'"))?;
+                finish_progress(&pb);
+                Ok(())
+            })
+        })
+        .collect();
+
+    let mut errors: Vec<anyhow::Error> = Vec::new();
+    for handle in handles {
+        match handle.join() {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => errors.push(e),
+            Err(_) => errors.push(anyhow::anyhow!("fetch thread panicked")),
+        }
+    }
+
+    if let Some(first) = errors.into_iter().next() {
+        return Err(first);
     }
     Ok(())
 }
