@@ -157,6 +157,46 @@ fn create_stores_base_in_config() {
         .success();
 }
 
+/// Create: sets upstream tracking so `git push` works without arguments
+#[test]
+fn create_sets_upstream_tracking() {
+    let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
+
+    gwt(&bare_dir)
+        .args(["create", "test/upstream-check"])
+        .assert()
+        .success();
+
+    // Verify branch.test/upstream-check.remote is set
+    let output = git_cmd()
+        .args(["config", "--get", "branch.test/upstream-check.remote"])
+        .current_dir(&bare_dir)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "branch remote config should be set"
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "origin");
+
+    // Verify branch.test/upstream-check.merge is set
+    let output = git_cmd()
+        .args(["config", "--get", "branch.test/upstream-check.merge"])
+        .current_dir(&bare_dir)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "branch merge config should be set");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "refs/heads/test/upstream-check"
+    );
+
+    gwt(&bare_dir)
+        .args(["remove", "test-upstream-check", "--force"])
+        .assert()
+        .success();
+}
+
 /// Create: stores default branch as base when --base is omitted
 #[test]
 fn create_stores_default_base_in_config() {

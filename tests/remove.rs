@@ -63,13 +63,14 @@ fn remove_force_dirty_worktree() {
     )
     .unwrap();
 
-    // Without --force should fail
+    // Without --force: confirm "y" but git worktree remove still fails (dirty)
     gwt(&bare_dir)
         .args(["remove", "test-rm-dirty"])
+        .write_stdin("y\n")
         .assert()
         .failure();
 
-    // With --force should succeed
+    // With --force should succeed (skips confirmation and forces removal)
     gwt(&bare_dir)
         .args(["remove", "test-rm-dirty", "--force"])
         .assert()
@@ -148,6 +149,7 @@ fn remove_merged_removes_only_merged_worktrees() {
     // Run remove --merged
     gwt(&bare_dir)
         .args(["remove", "--merged"])
+        .write_stdin("y\n")
         .assert()
         .success()
         .stderr(predicate::str::contains("feat-merged").and(predicate::str::contains("Removed")));
@@ -193,4 +195,27 @@ fn remove_requires_name_or_merged() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("a worktree name is required"));
+}
+
+/// Remove: declining confirmation skips removal
+#[test]
+fn remove_confirmation_declined() {
+    let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
+    let project_dir = bare_dir.parent().unwrap();
+
+    gwt(&bare_dir)
+        .args(["create", "test/rm-skip"])
+        .assert()
+        .success();
+
+    // Decline confirmation
+    gwt(&bare_dir)
+        .args(["remove", "test-rm-skip"])
+        .write_stdin("n\n")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Skipped"));
+
+    // Worktree should still exist
+    assert!(project_dir.join("test-rm-skip").exists());
 }

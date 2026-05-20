@@ -926,13 +926,14 @@ fn remove_force_dirty_worktree() {
     )
     .unwrap();
 
-    // Without --force should fail
+    // Without --force: confirm "y" but git worktree remove still fails (dirty)
     gwt(&bare_dir)
         .args(["remove", "test-rm-dirty"])
+        .write_stdin("y\n")
         .assert()
         .failure();
 
-    // With --force should succeed
+    // With --force should succeed (skips confirmation and forces removal)
     gwt(&bare_dir)
         .args(["remove", "test-rm-dirty", "--force"])
         .assert()

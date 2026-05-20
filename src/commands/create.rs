@@ -35,6 +35,19 @@ pub fn cmd_create(
 
     set_branch_base(bare_dir, branch, &base_ref);
 
+    // Set upstream tracking so `git push` works without arguments.
+    // We set config directly because the remote tracking ref for the new
+    // branch doesn't exist yet, so git2's set_upstream would fail.
+    if let Ok(repo) = git2::Repository::open_bare(bare_dir) {
+        if let Ok(mut config) = repo.config() {
+            let _ = config.set_str(&format!("branch.{branch}.remote"), remote);
+            let _ = config.set_str(
+                &format!("branch.{branch}.merge"),
+                &format!("refs/heads/{branch}"),
+            );
+        }
+    }
+
     eprintln!(
         "{GREEN}{:>12}{GREEN:#} worktree {BOLD}{name}{BOLD:#} at {} (new branch {BOLD}{branch}{BOLD:#} from {BOLD}{base_ref}{BOLD:#})",
         "Created",

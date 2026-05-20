@@ -28,6 +28,24 @@ pub fn cmd_remove(
     // Get the branch name before removing
     let branch = get_current_branch(&target_dir).ok();
 
+    // Confirm removal unless --force is passed
+    if !force {
+        let branch_info = branch
+            .as_deref()
+            .map(|b| format!(" (branch '{b}')"))
+            .unwrap_or_default();
+        eprint!("Remove worktree '{name}'{branch_info}? [y/N] ");
+        let mut answer = String::new();
+        std::io::stdin().read_line(&mut answer)?;
+        if !answer.trim().eq_ignore_ascii_case("y") {
+            eprintln!(
+                "{YELLOW}{:>12}{YELLOW:#} removal of {BOLD}{name}{BOLD:#}",
+                "Skipped"
+            );
+            return Ok(());
+        }
+    }
+
     let mut args = vec!["worktree", "remove"];
     if force {
         args.push("--force");
@@ -128,8 +146,23 @@ pub fn cmd_remove_merged(
         merged_names.join(", ")
     );
 
+    // Confirm the batch removal unless --force
+    if !force {
+        eprint!("Remove all merged worktrees? [y/N] ");
+        let mut answer = String::new();
+        std::io::stdin().read_line(&mut answer)?;
+        if !answer.trim().eq_ignore_ascii_case("y") {
+            eprintln!(
+                "{YELLOW}{:>12}{YELLOW:#} merged worktree removal",
+                "Skipped"
+            );
+            return Ok(());
+        }
+    }
+
     for name in &merged_names {
-        if let Err(e) = cmd_remove(bare_dir, name, force, delete_remote, remote, verbose) {
+        // Skip per-item confirmation since user already confirmed the batch
+        if let Err(e) = cmd_remove(bare_dir, name, true, delete_remote, remote, verbose) {
             eprintln!(
                 "{RED}{:>12}{RED:#} removing {BOLD}{name}{BOLD:#}: {e:#}",
                 "Failed"
