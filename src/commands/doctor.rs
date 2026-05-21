@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::fs;
 use std::path::Path;
 use std::thread;
 
@@ -16,23 +17,29 @@ pub fn cmd_doctor(bare_dir: &Path, verbose: bool) -> Result<()> {
     eprintln!("{GREEN}{:>12}{GREEN:#} active branches...", "Fetching");
     let _ = git::fetch_active_remotes(bare_dir, verbose);
 
-    // 1. Prune stale worktree references using libgit2
+    // 1. Detect stale worktree references (directory removed outside agwt)
     if let Ok(repo) = git2::Repository::open_bare(bare_dir) {
         if let Ok(wt_names) = repo.worktrees() {
             for wt_name in wt_names.iter().flatten() {
                 if let Ok(wt) = repo.find_worktree(wt_name) {
                     if wt.is_prunable(None).unwrap_or(false) {
+                        let branch = read_worktree_branch(bare_dir, wt_name);
+                        let hint = match &branch {
+                            Some(b) => format!(
+                                " — branch '{b}' still exists\n\
+                                 {:>12}   restore: `agwt checkout {b}`\n\
+                                 {:>12}   clean up: `agwt remove {wt_name}`",
+                                "", ""
+                            ),
+                            None => format!("\n{:>12}   clean up: `agwt remove {wt_name}`", ""),
+                        };
                         eprintln!(
-                            "{YELLOW}{:>12}{YELLOW:#} Pruning worktree: {wt_name}",
+                            "{YELLOW}{:>12}{YELLOW:#} {wt_name} — worktree directory was removed outside agwt{hint}",
                             "Stale"
                         );
-                        let _ = wt.prune(None);
                         issues += 1;
                     }
                 }
-            }
-            if issues > 0 {
-                eprintln!("{GREEN}{:>12}{GREEN:#} stale worktree references", "Pruned");
             }
         }
     }
@@ -99,6 +106,17 @@ pub fn cmd_doctor(bare_dir: &Path, verbose: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Read the branch name from a stale worktree's admin HEAD file.
+/// Returns `None` if the file is missing or doesn't contain a branch ref.
+fn read_worktree_branch(bare_dir: &Path, wt_name: &str) -> Option<String> {
+    let head_path = bare_dir.join("worktrees").join(wt_name).join("HEAD");
+    let content = fs::read_to_string(head_path).ok()?;
+    let trimmed = content.trim();
+    trimmed
+        .strip_prefix("ref: refs/heads/")
+        .map(|b| b.to_string())
 }
 
 enum Diagnostic {

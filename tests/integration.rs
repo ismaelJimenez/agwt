@@ -1986,12 +1986,20 @@ fn doctor_stale_worktree() {
     let wt_dir = project_dir.join("test-doc-stale");
     std::fs::remove_dir_all(&wt_dir).unwrap();
 
-    // Doctor should detect the stale worktree and prune it
-    gwt(&bare_dir)
-        .arg("doctor")
-        .assert()
-        .success()
-        .stderr(predicate::str::contains("Stale").and(predicate::str::contains("Pruned")));
+    // Doctor should warn about the stale worktree without pruning it
+    gwt(&bare_dir).arg("doctor").assert().success().stderr(
+        predicate::str::contains("Stale")
+            .and(predicate::str::contains("removed outside agwt"))
+            .and(predicate::str::contains(
+                "branch 'test/doc-stale' still exists",
+            ))
+            .and(predicate::str::contains(
+                "restore: `agwt checkout test/doc-stale`",
+            ))
+            .and(predicate::str::contains(
+                "clean up: `agwt remove test-doc-stale`",
+            )),
+    );
 }
 
 // =============================================================================
