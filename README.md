@@ -9,7 +9,7 @@ A CLI tool to manage git worktrees backed by a bare repository.
 | | Multiple clones | agwt |
 |---|---|---|
 | Disk usage | Full `.git` per clone (objects, pack files, hooks) | Single `.bare/` shared by all worktrees |
-| Fetching | Must `git fetch` in every clone independently | One `agwt fetch` updates everything |
+| Fetching | Must `git fetch` in every clone independently | One `agwt fetch` updates all active worktree branches |
 | Branch state | Each clone has its own ref database — easy to lose track | All branches live in one place, `agwt list` shows them all |
 | Creating a new workspace | Full network clone (slow for large repos) | Instant local checkout, no network needed |
 | Consistency | Remotes/hooks/config can drift between clones | One config, one set of remotes, one hook directory |
@@ -133,7 +133,7 @@ agwt sync
 # Sync all worktrees at once
 agwt sync --all
 
-# Fetch all remotes
+# Fetch active worktree branches from remotes
 agwt fetch
 
 # Remove a worktree and its local branch
