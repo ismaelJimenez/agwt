@@ -18,11 +18,9 @@ pub fn cmd_remove(
 ) -> Result<()> {
     let target_dir = parent_of_bare(bare_dir).join(name);
 
+    // Handle stale worktree: directory is gone but .bare/worktrees/<name> still exists
     if !target_dir.exists() {
-        bail!(
-            "worktree directory does not exist: {}",
-            target_dir.display()
-        );
+        return remove_stale_worktree(bare_dir, name, force, delete_remote, remote, verbose);
     }
 
     // Get the branch name before removing
@@ -98,6 +96,90 @@ pub fn cmd_remove(
                     if wt.is_prunable(None).unwrap_or(false) {
                         let _ = wt.prune(None);
                     }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Handle removal of a stale worktree whose directory was deleted externally.
+/// Prunes the admin entry and deletes the associated branch.
+fn remove_stale_worktree(
+    bare_dir: &Path,
+    name: &str,
+    force: bool,
+    delete_remote: bool,
+    remote: &str,
+    verbose: bool,
+) -> Result<()> {
+    // Read the branch from the stale admin entry before pruning
+    let head_path = bare_dir.join("worktrees").join(name).join("HEAD");
+    let branch = std::fs::read_to_string(&head_path)
+        .ok()
+        .and_then(|c| c.trim().strip_prefix("ref: refs/heads/").map(String::from));
+
+    // Verify the worktree entry actually exists and is prunable
+    let repo = git2::Repository::open_bare(bare_dir)?;
+    let wt = repo.find_worktree(name);
+    match wt {
+        Ok(wt) if wt.is_prunable(None).unwrap_or(false) => {
+            // Confirm removal unless --force
+            if !force {
+                let branch_info = branch
+                    .as_deref()
+                    .map(|b| format!(" (branch '{b}')"))
+                    .unwrap_or_default();
+                eprint!("Remove stale worktree '{name}'{branch_info}? [y/N] ");
+                let mut answer = String::new();
+                std::io::stdin().read_line(&mut answer)?;
+                if !answer.trim().eq_ignore_ascii_case("y") {
+                    eprintln!(
+                        "{YELLOW}{:>12}{YELLOW:#} removal of {BOLD}{name}{BOLD:#}",
+                        "Skipped"
+                    );
+                    return Ok(());
+                }
+            }
+
+            wt.prune(None)
+                .map_err(|e| anyhow::anyhow!("failed to prune stale worktree '{name}': {e}"))?;
+            eprintln!(
+                "{GREEN}{:>12}{GREEN:#} stale worktree {BOLD}{name}{BOLD:#}",
+                "Pruned"
+            );
+        }
+        _ => {
+            bail!("worktree '{name}' does not exist (no directory, no stale entry)");
+        }
+    }
+
+    // Delete the local branch
+    if let Some(ref b) = branch {
+        if b != "HEAD" && b != "master" && b != "main" {
+            if git::delete_branch(bare_dir, b) {
+                eprintln!("{GREEN}{:>12}{GREEN:#} branch {BOLD}{b}{BOLD:#}", "Deleted");
+            }
+
+            if delete_remote {
+                eprint!("Delete remote branch '{remote}/{b}'? [y/N] ");
+                let mut answer = String::new();
+                std::io::stdin().read_line(&mut answer)?;
+                if answer.trim().eq_ignore_ascii_case("y") {
+                    if git::push_delete_branch(bare_dir, remote, b, verbose).is_ok() {
+                        eprintln!(
+                            "{GREEN}{:>12}{GREEN:#} remote branch {BOLD}{remote}/{b}{BOLD:#}",
+                            "Deleted"
+                        );
+                    } else {
+                        eprintln!(
+                            "{RED}{:>12}{RED:#} failed to delete remote branch {BOLD}{remote}/{b}{BOLD:#}",
+                            "error"
+                        );
+                    }
+                } else {
+                    eprintln!("{YELLOW}{:>12}{YELLOW:#} remote branch deletion", "Skipped");
                 }
             }
         }

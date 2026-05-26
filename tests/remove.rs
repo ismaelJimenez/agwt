@@ -219,3 +219,49 @@ fn remove_confirmation_declined() {
     // Worktree should still exist
     assert!(project_dir.join("test-rm-skip").exists());
 }
+
+/// Remove: handles stale worktree (directory deleted externally)
+#[test]
+fn remove_stale_worktree() {
+    let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
+    let project_dir = bare_dir.parent().unwrap();
+
+    gwt(&bare_dir)
+        .args(["create", "test/rm-stale"])
+        .assert()
+        .success();
+
+    // Delete the worktree directory externally
+    let wt_dir = project_dir.join("test-rm-stale");
+    std::fs::remove_dir_all(&wt_dir).unwrap();
+
+    // The stale admin dir should exist
+    assert!(bare_dir.join("worktrees").join("test-rm-stale").exists());
+
+    // Remove should succeed, pruning the stale entry and deleting the branch
+    gwt(&bare_dir)
+        .args(["remove", "test-rm-stale", "--force"])
+        .assert()
+        .success()
+        .stderr(
+            predicate::str::contains("Pruned")
+                .and(predicate::str::contains("Deleted"))
+                .and(predicate::str::contains("test/rm-stale")),
+        );
+
+    // Admin dir should be gone
+    assert!(!bare_dir.join("worktrees").join("test-rm-stale").exists());
+
+    // Branch should be gone
+    let branch_check = git_cmd()
+        .args(["branch", "--list", "test/rm-stale"])
+        .current_dir(&bare_dir)
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&branch_check.stdout)
+            .trim()
+            .is_empty(),
+        "branch should have been deleted"
+    );
+}

@@ -441,3 +441,49 @@ fn checkout_without_base_has_no_config() {
         .assert()
         .success();
 }
+
+/// Checkout: succeeds when a stale worktree admin dir exists (directory deleted externally)
+#[test]
+fn checkout_stale_worktree_is_pruned() {
+    let (_remote_tmp, _project_tmp, bare_dir) = init_fresh();
+    let project_dir = bare_dir.parent().unwrap();
+
+    // Create and push a branch
+    gwt(&bare_dir)
+        .args(["create", "test/co-stale"])
+        .assert()
+        .success();
+    let push = git_cmd()
+        .args(["push", "--quiet", "origin", "test/co-stale"])
+        .current_dir(project_dir.join("test-co-stale"))
+        .output()
+        .unwrap();
+    assert!(
+        push.status.success(),
+        "push failed: {}",
+        String::from_utf8_lossy(&push.stderr)
+    );
+
+    // Delete the worktree directory externally (simulating accidental rm -rf)
+    let wt_dir = project_dir.join("test-co-stale");
+    std::fs::remove_dir_all(&wt_dir).unwrap();
+
+    // The stale admin dir should still exist
+    assert!(bare_dir.join("worktrees").join("test-co-stale").exists());
+
+    // Checkout should succeed by auto-pruning the stale entry
+    gwt(&bare_dir)
+        .args(["checkout", "test/co-stale"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Created").and(predicate::str::contains("tracking")));
+
+    // Verify worktree exists and works
+    assert!(wt_dir.exists());
+
+    // cleanup
+    gwt(&bare_dir)
+        .args(["remove", "test-co-stale", "--force"])
+        .assert()
+        .success();
+}

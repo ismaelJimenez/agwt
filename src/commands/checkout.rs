@@ -21,6 +21,9 @@ pub fn cmd_checkout(
         bail!("directory already exists: {}", target_dir.display());
     }
 
+    // Prune stale worktree admin entry if the directory is gone but .bare/worktrees/<name> remains
+    prune_stale_worktree(bare_dir, name);
+
     // Fetch the specific branch from the remote
     if git::fetch_remote(bare_dir, remote, &[branch], verbose).is_err() {
         bail!(
@@ -60,4 +63,16 @@ pub fn cmd_checkout(
     );
 
     Ok(())
+}
+
+/// Remove a stale worktree admin entry (.bare/worktrees/<name>) if the worktree
+/// directory no longer exists. This allows re-creating the worktree without manual cleanup.
+fn prune_stale_worktree(bare_dir: &Path, name: &str) {
+    if let Ok(repo) = git2::Repository::open_bare(bare_dir) {
+        if let Ok(wt) = repo.find_worktree(name) {
+            if wt.is_prunable(None).unwrap_or(false) {
+                let _ = wt.prune(None);
+            }
+        }
+    }
 }
