@@ -50,8 +50,8 @@ pub fn cmd_rebase(bare_dir: &Path, name: Option<&str>, remote: &str, verbose: bo
     };
 
     // Fetch the base branch from remote
-    if crate::git::fetch_remote(bare_dir, remote, &[&base], verbose).is_err() {
-        bail!("failed to fetch base branch '{base}' from remote '{remote}'");
+    if let Err(e) = crate::git::fetch_remote(bare_dir, remote, &[&base], verbose) {
+        bail!("failed to fetch base branch '{base}' from remote '{remote}': {e:#}");
     }
 
     // Rebase onto remote/base

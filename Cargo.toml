@@ -19,7 +19,7 @@ anyhow = "1"
 anstream = "1"
 anstyle = "1"
 dunce = "1"
-git2 = { version = "0.21", features = ["cred"] }
+git2 = { version = "0.21", features = ["ssh", "cred"] }
 indicatif = "0.18"
 
 [dev-dependencies]
