@@ -7,6 +7,7 @@ use anyhow::{Result, bail};
 
 use crate::git::{
     get_branch_base, get_current_branch, get_default_branch, is_git_dir, parent_of_bare,
+    resolve_git_dir,
 };
 use crate::{BOLD, GREEN, YELLOW};
 
@@ -67,23 +68,7 @@ pub fn cmd_rebase(bare_dir: &Path, name: Option<&str>, remote: &str, verbose: bo
         .status()?;
 
     if !status.success() {
-        // In a worktree, .git is a file pointing to the real git dir.
-        // Resolve the actual git dir to check for rebase state.
-        let git_dir_output = Command::new("git")
-            .current_dir(&target_dir)
-            .args(["rev-parse", "--git-dir"])
-            .output();
-        let git_dir = git_dir_output
-            .ok()
-            .and_then(|o| {
-                if o.status.success() {
-                    Some(target_dir.join(String::from_utf8_lossy(&o.stdout).trim()))
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_else(|| target_dir.join(".git"));
-
+        let git_dir = resolve_git_dir(&target_dir);
         let rebase_dir = git_dir.join("rebase-merge");
         let rebase_apply = git_dir.join("rebase-apply");
         if rebase_dir.exists() || rebase_apply.exists() {

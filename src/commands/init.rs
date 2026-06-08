@@ -35,7 +35,7 @@ pub fn cmd_init(url: &str, name: Option<&str>, verbose: bool) -> Result<()> {
     // Then create remote tracking refs locally from the cloned refs/heads/*,
     // avoiding a network round-trip.
     {
-        let repo = git2::Repository::open_bare(&bare_dir)?;
+        let repo = crate::git::open_bare(&bare_dir)?;
         let mut config = repo.config()?;
         config.set_str("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")?;
         config.set_str("push.autoSetupRemote", "true")?;

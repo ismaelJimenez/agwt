@@ -5,7 +5,9 @@ use std::thread;
 use anstream::eprintln;
 use anyhow::{Result, bail};
 
-use crate::git::{get_current_branch, is_git_dir, list_worktrees_basic, parent_of_bare};
+use crate::git::{
+    get_current_branch, is_git_dir, list_worktrees_basic, parent_of_bare, resolve_git_dir,
+};
 use crate::{BOLD, GREEN, RED, YELLOW};
 
 pub fn cmd_sync(
@@ -131,8 +133,9 @@ fn sync_one_quiet(
         .map_err(|e| SyncError::Failed(format!("failed to run git pull: {e}")))?;
 
     if !pull_status.success() {
-        let rebase_dir = target_dir.join(".git/rebase-merge");
-        let rebase_apply = target_dir.join(".git/rebase-apply");
+        let git_dir = resolve_git_dir(target_dir);
+        let rebase_dir = git_dir.join("rebase-merge");
+        let rebase_apply = git_dir.join("rebase-apply");
         if rebase_dir.exists() || rebase_apply.exists() {
             return Err(SyncError::Conflict);
         }
@@ -162,9 +165,10 @@ fn sync_one(target_dir: &Path, name: Option<&str>, remote: &str, verbose: bool) 
     let display_name = name.unwrap_or_else(|| target_dir.file_name().unwrap().to_str().unwrap());
 
     if !pull_status.success() {
-        // Check if we're mid-rebase
-        let rebase_dir = target_dir.join(".git/rebase-merge");
-        let rebase_apply = target_dir.join(".git/rebase-apply");
+        // In a worktree, .git is a file pointing to the real git dir.
+        let git_dir = resolve_git_dir(target_dir);
+        let rebase_dir = git_dir.join("rebase-merge");
+        let rebase_apply = git_dir.join("rebase-apply");
         if rebase_dir.exists() || rebase_apply.exists() {
             eprintln!(
                 "{YELLOW}{:>12}{YELLOW:#} worktree {BOLD}{display_name}{BOLD:#} has rebase conflicts",

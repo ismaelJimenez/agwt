@@ -68,7 +68,7 @@ pub fn cmd_checkout(
 /// Remove a stale worktree admin entry (.bare/worktrees/<name>) if the worktree
 /// directory no longer exists. This allows re-creating the worktree without manual cleanup.
 fn prune_stale_worktree(bare_dir: &Path, name: &str) {
-    if let Ok(repo) = git2::Repository::open_bare(bare_dir) {
+    if let Ok(repo) = crate::git::open_bare(bare_dir) {
         if let Ok(wt) = repo.find_worktree(name) {
             if wt.is_prunable(None).unwrap_or(false) {
                 let _ = wt.prune(None);

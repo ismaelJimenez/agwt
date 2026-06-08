@@ -7,8 +7,8 @@ use std::thread;
 
 use anyhow::{Context, Result, bail};
 use git2::{
-    Cred, CredentialType, FetchOptions, FetchPrune, RemoteCallbacks, Repository, StatusOptions,
-    WorktreeAddOptions,
+    Cred, CredentialType, FetchOptions, FetchPrune, RemoteCallbacks, Repository,
+    RepositoryOpenFlags, StatusOptions, WorktreeAddOptions,
 };
 use indicatif::{ProgressBar, ProgressStyle};
 
@@ -55,10 +55,44 @@ pub fn parent_of_bare(bare_dir: &Path) -> PathBuf {
     bare_dir.parent().unwrap_or(bare_dir).to_path_buf()
 }
 
+/// Open a bare repository, bypassing `safe.bareRepository` restrictions.
+///
+/// `agwt` intentionally manages bare repos, so the safety check is not needed.
+/// Using `open_ext` with `BARE | NO_SEARCH` avoids the restriction introduced
+/// in libgit2 1.9 / git2 0.21 when the user has `safe.bareRepository=explicit`.
+pub fn open_bare(bare_dir: &Path) -> Result<Repository> {
+    use std::ffi::OsStr;
+    Repository::open_ext(
+        bare_dir,
+        RepositoryOpenFlags::BARE | RepositoryOpenFlags::NO_SEARCH,
+        &[] as &[&OsStr],
+    )
+    .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))
+}
+
 pub fn git(bare_dir: &Path) -> Command {
     let mut cmd = Command::new("git");
     cmd.current_dir(bare_dir);
     cmd
+}
+
+/// Resolve the actual git directory for a worktree path.
+/// In a worktree, `.git` is a file pointing to the real git dir.
+pub fn resolve_git_dir(wt_path: &Path) -> PathBuf {
+    let output = Command::new("git")
+        .current_dir(wt_path)
+        .args(["rev-parse", "--git-dir"])
+        .output();
+    output
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                Some(wt_path.join(String::from_utf8_lossy(&o.stdout).trim()))
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| wt_path.join(".git"))
 }
 
 pub fn run(cmd: &mut Command) -> Result<()> {
@@ -83,8 +117,7 @@ pub fn run_output(cmd: &mut Command) -> Result<String> {
 }
 
 pub fn get_default_branch(bare_dir: &Path) -> Result<String> {
-    let repo = Repository::open_bare(bare_dir)
-        .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
+    let repo = open_bare(bare_dir)?;
     let head = repo.head().context("failed to read HEAD")?;
     let name = head
         .shorthand()
@@ -96,8 +129,7 @@ pub fn get_default_branch(bare_dir: &Path) -> Result<String> {
 pub fn list_worktrees(bare_dir: &Path, parent: &Path) -> Result<Vec<Worktree>> {
     let total_start = std::time::Instant::now();
 
-    let repo = Repository::open_bare(bare_dir)
-        .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
+    let repo = open_bare(bare_dir)?;
 
     // Read config for all branch bases
     let t0 = std::time::Instant::now();
@@ -156,8 +188,7 @@ pub fn list_worktrees(bare_dir: &Path, parent: &Path) -> Result<Vec<Worktree>> {
 /// Skips expensive status checks and config lookups. Use when you only need
 /// to iterate over worktrees (e.g. sync --all, doctor, remove --merged).
 pub fn list_worktrees_basic(bare_dir: &Path, parent: &Path) -> Result<Vec<Worktree>> {
-    let repo = Repository::open_bare(bare_dir)
-        .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
+    let repo = open_bare(bare_dir)?;
     let raw_entries = enumerate_worktrees_git2(&repo, parent)?;
 
     let mut entries: Vec<_> = raw_entries
@@ -312,7 +343,7 @@ fn get_ahead_behind_git2(repo: &Repository, branch: &str) -> (u32, u32) {
 }
 
 pub fn set_branch_base(bare_dir: &Path, branch: &str, base: &str) {
-    if let Ok(repo) = Repository::open_bare(bare_dir) {
+    if let Ok(repo) = open_bare(bare_dir) {
         if let Ok(mut config) = repo.config() {
             let _ = config.set_str(&format!("branch.{branch}.agwt-base"), base);
         }
@@ -321,7 +352,7 @@ pub fn set_branch_base(bare_dir: &Path, branch: &str, base: &str) {
 
 /// Get the configured base branch for a given branch (from `branch.<name>.agwt-base`).
 pub fn get_branch_base(bare_dir: &Path, branch: &str) -> Option<String> {
-    let repo = Repository::open_bare(bare_dir).ok()?;
+    let repo = open_bare(bare_dir).ok()?;
     let config = repo.config().ok()?;
     let key = format!("branch.{branch}.agwt-base");
     config.get_string(&key).ok()
@@ -344,15 +375,13 @@ pub fn is_git_dir(path: &Path) -> bool {
 
 /// Check if a local branch exists in the bare repo.
 pub fn branch_exists(bare_dir: &Path, branch: &str) -> Result<bool> {
-    let repo = Repository::open_bare(bare_dir)
-        .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
+    let repo = open_bare(bare_dir)?;
     Ok(repo.find_branch(branch, git2::BranchType::Local).is_ok())
 }
 
 /// Get all branches that are fully merged into the given target branch.
 pub fn get_merged_branches(bare_dir: &Path, target: &str) -> Result<Vec<String>> {
-    let repo = Repository::open_bare(bare_dir)
-        .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
+    let repo = open_bare(bare_dir)?;
 
     let target_ref = format!("refs/heads/{target}");
     let target_oid = repo
@@ -386,7 +415,7 @@ pub fn get_merged_branches(bare_dir: &Path, target: &str) -> Result<Vec<String>>
 
 /// Get all branches whose upstream tracking branch is "gone" (deleted from remote).
 pub fn get_gone_branches(bare_dir: &Path) -> Vec<String> {
-    let Ok(repo) = Repository::open_bare(bare_dir) else {
+    let Ok(repo) = open_bare(bare_dir) else {
         return Vec::new();
     };
     let Ok(branches) = repo.branches(Some(git2::BranchType::Local)) else {
@@ -419,7 +448,7 @@ pub fn get_gone_branches(bare_dir: &Path) -> Vec<String> {
 
 /// Delete a local branch by name. Returns true if successful.
 pub fn delete_branch(bare_dir: &Path, branch: &str) -> bool {
-    let Ok(repo) = Repository::open_bare(bare_dir) else {
+    let Ok(repo) = open_bare(bare_dir) else {
         return false;
     };
     let Ok(mut br) = repo.find_branch(branch, git2::BranchType::Local) else {
@@ -430,8 +459,7 @@ pub fn delete_branch(bare_dir: &Path, branch: &str) -> bool {
 
 /// Lock a worktree using libgit2.
 pub fn lock_worktree(bare_dir: &Path, wt_path: &Path, reason: Option<&str>) -> Result<()> {
-    let repo = Repository::open_bare(bare_dir)
-        .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
+    let repo = open_bare(bare_dir)?;
     let wt_name = find_worktree_name(&repo, wt_path)?;
     let wt = repo
         .find_worktree(&wt_name)
@@ -443,8 +471,7 @@ pub fn lock_worktree(bare_dir: &Path, wt_path: &Path, reason: Option<&str>) -> R
 
 /// Unlock a worktree using libgit2.
 pub fn unlock_worktree(bare_dir: &Path, wt_path: &Path) -> Result<()> {
-    let repo = Repository::open_bare(bare_dir)
-        .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
+    let repo = open_bare(bare_dir)?;
     let wt_name = find_worktree_name(&repo, wt_path)?;
     let wt = repo
         .find_worktree(&wt_name)
@@ -470,8 +497,7 @@ fn find_worktree_name(repo: &Repository, wt_path: &Path) -> Result<String> {
 
 /// Set upstream tracking for a branch.
 pub fn set_branch_upstream(bare_dir: &Path, branch: &str, upstream: &str) -> Result<()> {
-    let repo = Repository::open_bare(bare_dir)
-        .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
+    let repo = open_bare(bare_dir)?;
     let mut br = repo
         .find_branch(branch, git2::BranchType::Local)
         .with_context(|| format!("branch '{branch}' not found"))?;
@@ -687,8 +713,7 @@ pub fn fetch_remote(
     refspecs: &[&str],
     verbose: bool,
 ) -> Result<()> {
-    let repo = Repository::open_bare(bare_dir)
-        .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
+    let repo = open_bare(bare_dir)?;
     let mut remote = repo
         .find_remote(remote_name)
         .with_context(|| format!("remote '{}' not found", remote_name))?;
@@ -729,8 +754,7 @@ pub fn fetch_active_remotes(bare_dir: &Path, verbose: bool) -> Result<()> {
         }
     }
 
-    let repo = Repository::open_bare(bare_dir)
-        .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
+    let repo = open_bare(bare_dir)?;
     let remotes = repo.remotes().context("failed to list remotes")?;
     let remote_names: Vec<String> = remotes
         .iter()
@@ -739,8 +763,7 @@ pub fn fetch_active_remotes(bare_dir: &Path, verbose: bool) -> Result<()> {
     drop(repo);
 
     for remote_name in &remote_names {
-        let r = Repository::open_bare(bare_dir)
-            .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
+        let r = open_bare(bare_dir)?;
         let mut remote = r.find_remote(remote_name)?;
 
         let refspecs_for_remote: Vec<String> = branches
@@ -761,8 +784,7 @@ pub fn fetch_active_remotes(bare_dir: &Path, verbose: bool) -> Result<()> {
 
 /// Add a worktree for an existing local branch.
 pub fn worktree_add(bare_dir: &Path, name: &str, path: &Path, branch: &str) -> Result<()> {
-    let repo = Repository::open_bare(bare_dir)
-        .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
+    let repo = open_bare(bare_dir)?;
     let reference = repo
         .find_branch(branch, git2::BranchType::Local)
         .with_context(|| format!("branch '{}' not found", branch))?;
@@ -782,8 +804,7 @@ pub fn worktree_add_new_branch(
     new_branch: &str,
     start_ref: &str,
 ) -> Result<()> {
-    let repo = Repository::open_bare(bare_dir)
-        .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
+    let repo = open_bare(bare_dir)?;
 
     // Resolve the start point to a commit
     let start_oid = repo
@@ -828,8 +849,7 @@ pub fn push_delete_branch(
     branch: &str,
     verbose: bool,
 ) -> Result<()> {
-    let repo = Repository::open_bare(bare_dir)
-        .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
+    let repo = open_bare(bare_dir)?;
     let mut remote = repo
         .find_remote(remote_name)
         .with_context(|| format!("remote '{}' not found", remote_name))?;
@@ -945,5 +965,43 @@ mod tests {
         assert_eq!(pb.length(), Some(0));
         // Bar should be hidden initially (no draw target set to stderr)
         assert!(pb.is_hidden());
+    }
+
+    #[test]
+    fn open_bare_works_with_safe_bare_repository_explicit() {
+        // Simulate the user having safe.bareRepository=explicit in their gitconfig.
+        // Our open_bare helper must still succeed because agwt intentionally manages
+        // bare repos and uses open_ext with BARE | NO_SEARCH to bypass the restriction.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let bare_path = tmp.path().join("test.git");
+        std::process::Command::new("git")
+            .args(["init", "--bare"])
+            .arg(&bare_path)
+            .env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_KEY_0", "safe.bareRepository")
+            .env("GIT_CONFIG_VALUE_0", "all")
+            .output()
+            .unwrap();
+
+        // SAFETY: this test runs single-threaded for env var manipulation
+        unsafe {
+            std::env::set_var("GIT_CONFIG_COUNT", "1");
+            std::env::set_var("GIT_CONFIG_KEY_0", "safe.bareRepository");
+            std::env::set_var("GIT_CONFIG_VALUE_0", "explicit");
+        }
+
+        let result = open_bare(&bare_path);
+
+        unsafe {
+            std::env::remove_var("GIT_CONFIG_COUNT");
+            std::env::remove_var("GIT_CONFIG_KEY_0");
+            std::env::remove_var("GIT_CONFIG_VALUE_0");
+        }
+
+        assert!(
+            result.is_ok(),
+            "open_bare should succeed even with safe.bareRepository=explicit: {:?}",
+            result.err()
+        );
     }
 }

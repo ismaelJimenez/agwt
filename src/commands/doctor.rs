@@ -18,7 +18,7 @@ pub fn cmd_doctor(bare_dir: &Path, verbose: bool) -> Result<()> {
     let _ = git::fetch_active_remotes(bare_dir, verbose);
 
     // 1. Detect stale worktree references (directory removed outside agwt)
-    if let Ok(repo) = git2::Repository::open_bare(bare_dir) {
+    if let Ok(repo) = crate::git::open_bare(bare_dir) {
         if let Ok(wt_names) = repo.worktrees() {
             for wt_name in wt_names.iter().filter_map(|n| n.ok().flatten()) {
                 if let Ok(wt) = repo.find_worktree(wt_name) {

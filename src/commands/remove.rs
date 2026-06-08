@@ -89,7 +89,7 @@ pub fn cmd_remove(
     }
 
     // Auto-prune stale worktree references using libgit2
-    if let Ok(repo) = git2::Repository::open_bare(bare_dir) {
+    if let Ok(repo) = crate::git::open_bare(bare_dir) {
         if let Ok(wt_names) = repo.worktrees() {
             for wt_name in wt_names.iter().filter_map(|n| n.ok().flatten()) {
                 if let Ok(wt) = repo.find_worktree(wt_name) {
@@ -121,7 +121,7 @@ fn remove_stale_worktree(
         .and_then(|c| c.trim().strip_prefix("ref: refs/heads/").map(String::from));
 
     // Verify the worktree entry actually exists and is prunable
-    let repo = git2::Repository::open_bare(bare_dir)?;
+    let repo = crate::git::open_bare(bare_dir)?;
     let wt = repo.find_worktree(name);
     match wt {
         Ok(wt) if wt.is_prunable(None).unwrap_or(false) => {
