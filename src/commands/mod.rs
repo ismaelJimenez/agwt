@@ -8,6 +8,7 @@ pub mod list;
 pub mod lock;
 pub mod move_wt;
 pub mod open;
+pub mod rebase;
 pub mod remove;
 pub mod shell_init;
 pub mod sync;

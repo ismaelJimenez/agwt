@@ -16,6 +16,7 @@ use agwt::commands::{
     lock::{cmd_lock, cmd_unlock},
     move_wt::cmd_move,
     open::cmd_open,
+    rebase::cmd_rebase,
     remove::{cmd_remove, cmd_remove_merged},
     shell_init::cmd_shell_init,
     sync::cmd_sync,
@@ -121,6 +122,18 @@ enum Commands {
         /// Sync all worktrees at once
         #[arg(long)]
         all: bool,
+
+        /// Remote name (default: origin)
+        #[arg(long, default_value = "origin")]
+        remote: String,
+    },
+
+    /// Rebase a worktree branch onto its configured base branch
+    Rebase {
+        /// Worktree directory name. If omitted, uses the current directory
+        /// if it is inside a worktree, otherwise fails.
+        #[arg(add = ArgValueCompleter::new(complete_worktree_names))]
+        name: Option<String>,
 
         /// Remote name (default: origin)
         #[arg(long, default_value = "origin")]
@@ -271,6 +284,9 @@ fn main() {
                 }
                 Commands::Sync { name, all, remote } => {
                     cmd_sync(&bare_dir, name.as_deref(), all, &remote, verbose)
+                }
+                Commands::Rebase { name, remote } => {
+                    cmd_rebase(&bare_dir, name.as_deref(), &remote, verbose)
                 }
                 Commands::Fetch => cmd_fetch(&bare_dir, verbose),
                 Commands::Cd { name } => cmd_cd(&bare_dir, &name),

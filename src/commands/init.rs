@@ -43,9 +43,9 @@ pub fn cmd_init(url: &str, name: Option<&str>, verbose: bool) -> Result<()> {
         // Create refs/remotes/origin/* from refs/heads/*
         let refs: Vec<(String, git2::Oid)> = repo
             .references_glob("refs/heads/*")?
-            .filter_map(|r| r.ok())
             .filter_map(|r| {
-                let name = r.name()?.strip_prefix("refs/heads/")?.to_string();
+                let r = r.ok()?;
+                let name = r.name().ok()?.strip_prefix("refs/heads/")?.to_string();
                 let oid = r.target()?;
                 Some((name, oid))
             })

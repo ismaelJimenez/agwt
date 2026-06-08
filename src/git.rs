@@ -193,7 +193,7 @@ fn enumerate_worktrees_git2(repo: &Repository, parent: &Path) -> Result<Vec<RawE
         .context("failed to list worktrees from repo")?;
 
     for wt_name in wt_names.iter() {
-        let Some(name) = wt_name else { continue };
+        let Ok(Some(name)) = wt_name else { continue };
         let Ok(wt) = repo.find_worktree(name) else {
             continue;
         };
@@ -250,8 +250,8 @@ fn get_all_branch_bases_git2(repo: &Repository) -> HashMap<String, String> {
     };
     while let Some(entry) = entries.next() {
         let Ok(entry) = entry else { continue };
-        let Some(name) = entry.name() else { continue };
-        let Some(value) = entry.value() else { continue };
+        let Ok(name) = entry.name() else { continue };
+        let Ok(value) = entry.value() else { continue };
         // name is "branch.BRANCH_NAME.agwt-base"
         if let Some(branch_name) = name
             .strip_prefix("branch.")
@@ -298,7 +298,7 @@ fn get_ahead_behind_git2(repo: &Repository, branch: &str) -> (u32, u32) {
     let Ok(upstream) = local_branch.upstream() else {
         return (0, 0);
     };
-    let Some(upstream_ref) = upstream.get().name() else {
+    let Ok(upstream_ref) = upstream.get().name() else {
         return (0, 0);
     };
     let Ok(upstream_oid) = repo.refname_to_id(upstream_ref) else {
@@ -317,6 +317,14 @@ pub fn set_branch_base(bare_dir: &Path, branch: &str, base: &str) {
             let _ = config.set_str(&format!("branch.{branch}.agwt-base"), base);
         }
     }
+}
+
+/// Get the configured base branch for a given branch (from `branch.<name>.agwt-base`).
+pub fn get_branch_base(bare_dir: &Path, branch: &str) -> Option<String> {
+    let repo = Repository::open_bare(bare_dir).ok()?;
+    let config = repo.config().ok()?;
+    let key = format!("branch.{branch}.agwt-base");
+    config.get_string(&key).ok()
 }
 
 /// Get the current branch name for a worktree path using libgit2.
@@ -398,7 +406,7 @@ pub fn get_gone_branches(bare_dir: &Path) -> Vec<String> {
             // No upstream configured — not "gone"
             continue;
         };
-        let Some(upstream_ref) = upstream_buf.as_str() else {
+        let Ok(upstream_ref) = upstream_buf.as_str() else {
             continue;
         };
         // If the upstream ref doesn't resolve, the branch is "gone"
@@ -450,7 +458,7 @@ pub fn unlock_worktree(bare_dir: &Path, wt_path: &Path) -> Result<()> {
 fn find_worktree_name(repo: &Repository, wt_path: &Path) -> Result<String> {
     let wt_names = repo.worktrees().context("failed to list worktrees")?;
     for name in wt_names.iter() {
-        let Some(name) = name else { continue };
+        let Ok(Some(name)) = name else { continue };
         if let Ok(wt) = repo.find_worktree(name) {
             if wt.path() == wt_path {
                 return Ok(name.to_string());
@@ -724,7 +732,10 @@ pub fn fetch_active_remotes(bare_dir: &Path, verbose: bool) -> Result<()> {
     let repo = Repository::open_bare(bare_dir)
         .with_context(|| format!("failed to open bare repo: {}", bare_dir.display()))?;
     let remotes = repo.remotes().context("failed to list remotes")?;
-    let remote_names: Vec<String> = remotes.iter().flatten().map(String::from).collect();
+    let remote_names: Vec<String> = remotes
+        .iter()
+        .filter_map(|r| r.ok()?.map(String::from))
+        .collect();
     drop(repo);
 
     for remote_name in &remote_names {

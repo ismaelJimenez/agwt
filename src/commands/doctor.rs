@@ -20,7 +20,7 @@ pub fn cmd_doctor(bare_dir: &Path, verbose: bool) -> Result<()> {
     // 1. Detect stale worktree references (directory removed outside agwt)
     if let Ok(repo) = git2::Repository::open_bare(bare_dir) {
         if let Ok(wt_names) = repo.worktrees() {
-            for wt_name in wt_names.iter().flatten() {
+            for wt_name in wt_names.iter().filter_map(|n| n.ok().flatten()) {
                 if let Ok(wt) = repo.find_worktree(wt_name) {
                     if wt.is_prunable(None).unwrap_or(false) {
                         let branch = read_worktree_branch(bare_dir, wt_name);
@@ -158,7 +158,7 @@ fn diagnose_worktree(wt_path: &Path, name: &str, branch: &str, is_gone: bool) ->
         if let Ok(local_oid) = repo.refname_to_id(&local_ref) {
             if let Ok(local_branch) = repo.find_branch(branch, git2::BranchType::Local) {
                 if let Ok(upstream) = local_branch.upstream() {
-                    if let Some(upstream_ref) = upstream.get().name() {
+                    if let Ok(upstream_ref) = upstream.get().name() {
                         if let Ok(upstream_oid) = repo.refname_to_id(upstream_ref) {
                             if let Ok((ahead, behind)) =
                                 repo.graph_ahead_behind(local_oid, upstream_oid)
